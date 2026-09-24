@@ -1,0 +1,38 @@
+# configs/config.yaml
+
+project_name: "pixel-avatar-ddpm"
+seed: 42 # For reproducibility
+
+data:
+  raw_dataset_10k_path: "data/raw/cartoonset10k"
+  raw_dataset_100k_path: "data/raw/cartoonset100k"
+  processed_dataset_path: "data/processed/"
+  crop_size: 64 # Crop size for removing white borders from images
+  image_size: 32 # Image size for training (32x32) or (64x64)
+  
+  held_out_combinations:
+    - attribute_1: "hair_color"
+      value_1: "blue"
+      attribute_2: "eye_shape"
+      value_2: "round"
+
+model:
+  # Parametri U-Net
+  unet_base_channels: 64 # Richiesto: 64-128
+  unet_channel_mults: [1, 2, 4] # Moltiplicatori ad ogni livello di risoluzione
+  # Parametri Text Encoder (da zero)
+  text_encoder_layers: 3 # Richiesto: 2-4 layer
+  text_hidden_size: 128 # Richiesto: 64-128
+  vocab_size: 500 # Verrà sovrascritto dinamicamente dal tokenizer
+
+diffusion:
+  num_timesteps: 1000 # Classico valore per DDPM
+  schedule_type: "linear" # o "cosine"
+  beta_start: 0.0001
+  beta_end: 0.02
+
+training:
+  batch_size: 64
+  learning_rate: 0.0002
+  num_epochs: 100
+  checkpoint_dir: "checkpoints/"
