@@ -9,7 +9,7 @@ data:
   processed_dataset_path: "data/processed/"
   crop_size: 64 # Crop size for removing white borders from images
   image_size: 32 # Image size for training (32x32) or (64x64)
-  
+
   held_out_combinations:
     - attribute_1: "hair_color"
       value_1: "blue"
@@ -17,17 +17,21 @@ data:
       value_2: "round"
 
 model:
-  # Parametri U-Net
-  unet_base_channels: 64 # Richiesto: 64-128
-  unet_channel_mults: [1, 2, 4] # Moltiplicatori ad ogni livello di risoluzione
-  # Parametri Text Encoder (da zero)
-  text_encoder_layers: 3 # Richiesto: 2-4 layer
-  text_hidden_size: 128 # Richiesto: 64-128
-  vocab_size: 500 # Verrà sovrascritto dinamicamente dal tokenizer
+  # ResNet Parameters
+  resnet_base_channels: 64 # Base number of channels in the ResNet
+  resnet_channel_mults: [1, 2, 4] # Spatial resolution multipliers for ResNet layers
+  resnet_spatial_resolutions: 2 # Number of spatial resolution levels in the ResNet
+
+  # Time Encoder Parameters
+  time_encoder_mult: 4 # Hidden size for the time encoder
+
+  # Text Encoder Parameters
+  text_encoder_layers: 3 # Number of layers in the text encoder
+  text_hidden_size: 128 # Hidden size for the text encoder
 
 diffusion:
-  num_timesteps: 1000 # Classico valore per DDPM
-  schedule_type: "linear" # o "cosine"
+  num_timesteps: 1000
+  schedule_type: "linear"
   beta_start: 0.0001
   beta_end: 0.02
 
