@@ -10,21 +10,21 @@ class ResNetBlock(nn.Module):
     of a sequence of operations including normalization, activation, and convolution.
 
     Args:
-        input_channels: Number of channels in the input feature map.
-        output_channels: Number of channels in the output feature map.
+        input_channels: Number of channels in the input tensor.
+        output_channels: Number of channels in the output tensor.
         time_embedding_dimension: Dimension of the time embedding vector.
-        num_groups: Number of groups for group normalization.
-        kernel_size: Size of the convolutional kernel.
-        padding: Padding added to all four sides of the input.
-        bias: If True, adds a learnable bias to the convolutional layers.
+        num_groups: Number of groups for group normalization. Default is 32.
+        kernel_size: Size of the convolutional kernel. Default is 3.
+        padding: Padding added to all four sides of the input. Default is 1.
+        bias: If True, adds a learnable bias to the convolutional layers. Default is True.
 
     Note:
         The forward pass of the ResNet block consists of the following steps:
         1. Normalize and activate the input tensor.
         2. Apply the first convolution to the activated tensor.
-        3. Project the time embedding onto the feature map dimension.
-        4. Add the time embedding to the feature map.
-        5. Normalize and activate the feature map.
+        3. Project the time embedding onto the tensor dimension.
+        4. Add the time embedding to the tensor.
+        5. Normalize and activate the tensor.
         6. Apply the second convolution to the activated tensor.
         7. Add the residual connection to the output tensor.
     """
@@ -67,7 +67,7 @@ class ResNetBlock(nn.Module):
         # If the input and output channels are different, we need to create a
         # convolutional layer to match the dimensions for the residual connection.
         if input_channels != output_channels:
-            self.residual_connection = nn.Conv2d(
+            self.convolution_residual = nn.Conv2d(
                 input_channels,
                 output_channels,
                 kernel_size=1,
@@ -75,19 +75,19 @@ class ResNetBlock(nn.Module):
                 bias=bias,
             )
         else:
-            self.residual_connection = nn.Identity()
+            self.convolution_residual = nn.Identity()
 
     def forward(self, x: torch.Tensor, time_embedding: torch.Tensor) -> torch.Tensor:
         """Forward pass of the ResNet block.
 
         Args:
-            x: A tensor of shape (batch_size, input_channels, height, width)
+            x: Input tensor of shape (batch_size, input_channels, height, width)
                 representing the input feature map.
-            time_embedding: A tensor of shape (batch_size, time_embedding_dimension)
+            time_embedding: Input tensor of shape (batch_size, time_embedding_dimension)
                 representing the time embedding.
 
         Returns:
-            A tensor of shape (batch_size, output_channels, height, width)
+            Output tensor of shape (batch_size, output_channels, height, width)
                 representing the output feature map.
         """
 
@@ -137,7 +137,7 @@ class ResNetBlock(nn.Module):
         # Seventh phase: add the residual connection to the output tensor.
         # Shape before and after this operation:
         # (batch_size, output_channels, height, width)
-        x = x + self.residual_connection(residue)
+        x = x + self.convolution_residual(residue)
         # (batch_size, output_channels, height, width)
 
         return x
