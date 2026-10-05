@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as f
@@ -69,7 +71,8 @@ class ResNet(nn.Module):
         )
 
         # Decoding is done by a series of ResNet blocks followed by upsampling layers
-        # Note: The input channels for the decoder layers are doubled because of the skip connections from the encoder layers
+        # Note: The input channels for the decoder layers are doubled because
+        # of the skip connections from the encoder layers
         self.decoder_layers = nn.ModuleList()
         for i in range(spatial_resolutions - 1, -1, -1):
             in_ch = base_channels * (2 ** (i + 2))
@@ -99,7 +102,7 @@ class ResNet(nn.Module):
         # Generate the time embedding from the time step
         time_embedding = self.time_encoder(time_step)
 
-        # Initial convolution to map the input image to the base feature maps
+        # Initial convolution to map the input image to the base channels
         x = self.initial_convolution(x)
 
         # Encoder: pass through the ResNet blocks and downsampling layers, storing skip connections
@@ -121,3 +124,60 @@ class ResNet(nn.Module):
         # Final convolution to map the features to the desired output channels
         x = self.final_convolution(x)
         return x
+
+
+def get_timestep_embedding(timestep: torch.Tensor, dim: int) -> torch.Tensor:
+    """Generate sinusoidal embeddings for the given time steps.
+
+    Args:
+        timestep: A tensor of shape (batch_size,) representing the time step.
+        dim: The dimension of the output embeddings.
+
+    Returns:
+        A tensor of shape (batch_size, dim) representing the sinusoidal embeddings.
+    """
+    if len(timestep.shape) != 1:
+        raise ValueError("Expected timestep to be a 1D tensor.")
+
+    timestep = timestep.to(torch.float32)
+    half = dim // 2
+    freqs = torch.exp(
+        -math.log(10000)
+        * torch.arange(start=0, end=half, dtype=torch.float32, device=timestep.device)
+        / half
+    )
+    args = timestep[:, None] * freqs[None]
+    emb = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+
+    if dim % 2 == 1:
+        emb = torch.cat([emb, torch.zeros_like(emb[:, :1])], dim=-1)
+
+    return emb
+
+
+if __name__ == "__main__":
+    # Example usage of the ResNet model
+    model = ResNet(
+        image_size=32,
+        input_channels=3,
+        output_channels=3,
+        base_channels=64,
+        spatial_resolutions=2,
+        time_embedding_dimension=128,
+    )
+
+    # Create a random input tensor with shape (batch_size, channels, height, width)
+    input_tensor = torch.randn(1, 3, 32, 32)
+
+    # Create a time step tensor with shape (batch_size,)
+    time_step_tensor = get_timestep_embedding(torch.tensor([3]), dim=64)
+
+    # Forward pass through the model
+    output_tensor = model(input_tensor, time_step_tensor)
+
+    # Print the output shape and model summary
+    print("Output shape:", output_tensor.shape)
+    print(
+        "Number of parameters:",
+        sum(p.numel() for p in model.parameters() if p.requires_grad),
+    )

@@ -95,46 +95,46 @@ class ResNetBlock(nn.Module):
         # Shape: (batch_size, input_channels, height, width)
         residue = x
 
-        # First phase: normalize and activate the input tensor.
+        # 1. Normalize and activate the input tensor.
         # Shape before and after these operations:
         # (batch_size, input_channels, height, width)
         x = self.normalization_input(x)
         x = self.silu(x)
         # (batch_size, input_channels, height, width)
 
-        # Second phase: apply the first convolution to the activated tensor.
+        # 2. Apply the first convolution to the activated tensor.
         # Shape before and after this operation:
         # (batch_size, input_channels, height, width)
         x = self.convolution_input_output(x)
         # (batch_size, output_channels, height, width)
 
-        # Third phase: project the time embedding on the feature map dimension.
+        # 3. Project the time embedding on the feature map dimension.
         # Shape before and after this operation:
         # (batch_size, time_embedding_dimension)
         time_embedding = self.time_encoder(time_embedding)
         time_embedding = time_embedding.unsqueeze(-1).unsqueeze(-1)
         # (batch_size, output_channels, height, width)
 
-        # Fourth phase: add the time embedding to the feature map.
+        # 4. Add the time embedding to the feature map.
         # Shape before and after this operation:
         # (batch_size, output_channels, height, width)
         x = x + time_embedding
         # (batch_size, output_channels, height, width)
 
-        # Fifth phase: normalize and activate the feature map.
+        # 5. Normalize and activate the feature map.
         # Shape before and after these operations:
         # (batch_size, output_channels, height, width)
         x = self.normalization_output(x)
         x = self.silu(x)
         # (batch_size, output_channels, height, width)
 
-        # Sixth phase: apply the second convolution to the activated tensor.
+        # 6. Apply the second convolution to the activated tensor.
         # Shape before and after this operation:
         # (batch_size, output_channels, height, width)
         x = self.convolution_output_output(x)
         # (batch_size, output_channels, height, width)
 
-        # Seventh phase: add the residual connection to the output tensor.
+        # 7. Add the residual connection to the output tensor.
         # Shape before and after this operation:
         # (batch_size, output_channels, height, width)
         x = x + self.convolution_residual(residue)
