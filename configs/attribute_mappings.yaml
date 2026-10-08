@@ -1,0 +1,147 @@
+# List of Attribute Mappings for the CartoonSet Dataset https://google.github.io/cartoonset/download.html
+
+# Artwork
+chin_length: # Length of chin (below mouth region)
+  0: "short"
+  1: "medium length"
+  2: "long"
+
+eye_angle: # Tilt of the eye inwards or outwards
+  0: "tilted inward"
+  1: "neutral"
+  2: "tilted outward"
+
+eye_lashes: # Whether or not eyelashes are visible
+  0: "no"
+  1: "visible"
+
+eye_lid: # Appearance of the eyelids
+  0: "normal"
+  1: "single"
+
+eyebrow_shape: # Shape of eyebrows
+  0: "flat"
+  1: "slightly curved"
+  2: "low arch"
+  3: "high arch"
+  4: "steep arch"
+  5: "thick rounded"
+  6: "soft arch"
+  7: "straight horizontal"
+  8: "short curved"
+  9: "rounded thin"
+  10: "thin flat"
+  11: "straight thin"
+  12: "high soft arch"
+  13: "textured flat"
+
+eyebrow_weight: # Line weight of eyebrows
+  0: "thin line"
+  1: "thick line"
+
+face_shape: # Overall shape of the face TODO
+  0: "inverted triangle"
+  1: "oblong"
+  2: "round"
+  3: "oval"
+  4: "heart"
+  5: "diamond"
+  6: "square"
+
+facial_hair: # Type of facial hair (type 14 is no hair)
+  0: "stubble"
+  1: "sideburns"
+  2: "full beard"
+  3: "full beard thick"
+  4: "goatee"
+  5: "mustache"
+  6: "mustache with goatee"
+  7: "mustache with soul patch"
+  8: "mustache with chin strap"
+  9: "boxed beard"
+  10: "circle beard"
+  11: "full beard rounded"
+  12: "chin curtain"
+  13: "goatee patch"
+  14: "no"
+
+glasses: # Type of glasses (type 11 is no glasses)
+  0: "aviator sunglasses"
+  1: "sport dark sunglasses"
+  2: "cat eye red frames"
+  3: "rectangular thin transparent frames"
+  4: "rectangular pink arm transparent frames"
+  5: "round white thick frames"
+  6: "square grey frames"
+  7: "round thick frames"
+  8: "cat eye dark sunglasses"
+  9: "round sunglasses"
+  10: "heart-shaped sunglasses"
+  11: "no"
+
+hair: # Type of head hair
+  
+
+# Colors
+eye_color: # Color of the eye irises
+  0: "brown"
+  1: "blue"
+  2: "green"
+  3: "gray"
+  4: "black"
+
+face_color: # Color of the face skin TODO
+  0: "dark brown"
+  1: "medium dark brown"
+  2: "medium brown"
+  3: "warm tan"
+  4: "light tan"
+  5: "pale tan"
+  6: "fair pinkish"
+  7: "fair"
+  8: "light beige"
+  9: "light peach"
+  10: "pale beige"
+
+glasses_color: # Color of the glasses, if present
+  0: "black"
+  1: "cream"
+  2: "blue"
+  3: "red"
+  4: "gray"
+  5: "white"
+  6: "pink"
+
+hair_color: # Color of the hair, facial hair, and eyebrows
+  0: "blonde"
+  1: "yellow"
+  2: "orange"
+  3: "red"
+  4: "light brown"
+  5: "brown"
+  6: "dark brown"
+  7: "black"
+  8: "gray"
+  9: "white"
+
+# Proportions
+eye_eyebrow_distance: # Distance between the eye and eyebrows
+  0: "medium distance"
+  1: "far"
+  2: "close"
+
+eye_slant: # Similar to eye_angle, but rotates the eye and does not change artwork
+  0: "slanted up"
+  1: "straight"
+  2: "slanted down"
+
+eyebrow_thickness: # Vertical scaling of the eyebrows
+  0: "thin"
+  1: "medium thin"
+  2: "medium thick"
+  3: "thick"
+
+eyebrow_width: # Horizontal scaling of the eyebrows
+  0: "narrow"
+  1: "medium width"
+  2: "wide"

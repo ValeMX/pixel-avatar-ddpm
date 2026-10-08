@@ -98,9 +98,9 @@ class ResNet(nn.Module):
             base_channels, output_channels, kernel_size=3, padding=1
         )
 
-    def forward(self, x: torch.Tensor, time_step: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
         # Generate the time embedding from the time step
-        time_embedding = self.time_encoder(time_step)
+        time_embedding = self.time_encoder(timestep)
 
         # Initial convolution to map the input image to the base channels
         x = self.initial_convolution(x)
@@ -126,35 +126,6 @@ class ResNet(nn.Module):
         return x
 
 
-def get_timestep_embedding(timestep: torch.Tensor, dim: int) -> torch.Tensor:
-    """Generate sinusoidal embeddings for the given time steps.
-
-    Args:
-        timestep: A tensor of shape (batch_size,) representing the time step.
-        dim: The dimension of the output embeddings.
-
-    Returns:
-        A tensor of shape (batch_size, dim) representing the sinusoidal embeddings.
-    """
-    if len(timestep.shape) != 1:
-        raise ValueError("Expected timestep to be a 1D tensor.")
-
-    timestep = timestep.to(torch.float32)
-    half = dim // 2
-    freqs = torch.exp(
-        -math.log(10000)
-        * torch.arange(start=0, end=half, dtype=torch.float32, device=timestep.device)
-        / half
-    )
-    args = timestep[:, None] * freqs[None]
-    emb = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
-
-    if dim % 2 == 1:
-        emb = torch.cat([emb, torch.zeros_like(emb[:, :1])], dim=-1)
-
-    return emb
-
-
 if __name__ == "__main__":
     # Example usage of the ResNet model
     model = ResNet(
@@ -163,17 +134,15 @@ if __name__ == "__main__":
         output_channels=3,
         base_channels=64,
         spatial_resolutions=2,
-        time_embedding_dimension=128,
+        time_embedding_dimension=256,
     )
 
     # Create a random input tensor with shape (batch_size, channels, height, width)
-    input_tensor = torch.randn(1, 3, 32, 32)
-
-    # Create a time step tensor with shape (batch_size,)
-    time_step_tensor = get_timestep_embedding(torch.tensor([3]), dim=64)
+    input_tensor = torch.randn(2, 3, 32, 32)
+    timesteps_tensor = torch.tensor([3, 7])
 
     # Forward pass through the model
-    output_tensor = model(input_tensor, time_step_tensor)
+    output_tensor = model(input_tensor, timesteps_tensor)
 
     # Print the output shape and model summary
     print("Output shape:", output_tensor.shape)
