@@ -97,3 +97,32 @@ class TextEncoder(nn.Module):
             encoding = torch.cat([encoding, torch.zeros_like(encoding[:, :1])], dim=-1)
 
         return encoding
+
+
+if __name__ == "__main__":
+    # Example usage of the TextEncoder
+    vocabulary_size = 10000
+    hidden_dimension = 64
+    heads = 4
+    layers = 2
+
+    model = TextEncoder(
+        vocabulary_size=vocabulary_size,
+        hidden_dimension=hidden_dimension,
+        heads=heads,
+        layers=layers,
+    )
+
+    # Create a random input tensor with shape (batch_size, sequence_length)
+    input_tensor = torch.randint(0, vocabulary_size, (2, 12))
+
+    print("Input shape:", input_tensor.shape)
+
+    # Forward pass through the model
+    output_tensor = model(input_tensor)
+
+    print("Output shape:", output_tensor.shape)
+    print(
+        "Number of parameters:",
+        sum(p.numel() for p in model.parameters() if p.requires_grad),
+    )

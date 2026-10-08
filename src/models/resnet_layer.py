@@ -3,8 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as f
 
 from resnet_block import ResNetBlock
-from upsample import UpSample
-from downsample import DownSample
+from attention_block import AttentionBlock
 
 
 class ResNetLayer(nn.Sequential):
@@ -21,16 +20,19 @@ class ResNetLayer(nn.Sequential):
 
         Args:
             input: Input tensor of shape (batch_size, channels, height, width).
-            *args: Additional arguments, including the time embedding.
+            *args: Time embedding and text embedding.
 
         Returns:
             Output tensor after processing through the ResNet layer.
         """
         time_embedding = args[0]
+        text_embedding = args[1]
         x = input
         for block in self:
             if isinstance(block, ResNetBlock):
                 x = block(x, time_embedding)
+            elif isinstance(block, AttentionBlock):
+                x = block(x, text_embedding)
             else:
                 x = block(x)
         return x
