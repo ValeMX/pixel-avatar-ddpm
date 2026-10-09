@@ -191,3 +191,6 @@ pyrightconfig.json
 
 ### Data ###
 data/
+
+### Checkpoints ###
+checkpoints/

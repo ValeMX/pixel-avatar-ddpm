@@ -3,12 +3,18 @@
 project_name: "pixel-avatar-ddpm"
 seed: 42 # For reproducibility
 
-data:
+dataset:
   raw_dataset_10k_path: "data/raw/cartoonset10k"
   raw_dataset_100k_path: "data/raw/cartoonset100k"
-  processed_dataset_path: "data/processed/"
+  processed_dataset_path: "data/processed"
+  split_dataset_path: "data/splits"
+  checkpoint_path: "checkpoints"
+  image_extension: "png" # File extension of the images in the dataset
+  attributes_extension: "csv" # File extension of the attributes files in the dataset
+  caption_extension: "txt" # File extension of the caption files in the dataset
   crop_size: 64 # Crop size for removing white borders from images
   image_size: 32 # Image size for training (32x32) or (64x64)
+  strategy: "bilinear" # Resampling strategy for resizing images
 
   held_out_combinations:
     - attribute_1: "hair_color"
@@ -18,25 +24,29 @@ data:
 
 model:
   # ResNet Parameters
+  resnet_in_channels: 3 # Number of input channels (RGB images)
+  resnet_out_channels: 3 # Number of output channels (RGB images)
   resnet_base_channels: 64 # Base number of channels in the ResNet
-  resnet_channel_mults: [1, 2, 4] # Spatial resolution multipliers for ResNet layers
   resnet_spatial_resolutions: 2 # Number of spatial resolution levels in the ResNet
+  resnet_attention_heads: 4 # Number of attention heads in the ResNet
 
   # Time Encoder Parameters
   time_encoder_mult: 4 # Hidden size for the time encoder
 
   # Text Encoder Parameters
-  text_encoder_layers: 3 # Number of layers in the text encoder
-  text_hidden_size: 128 # Hidden size for the text encoder
+  sequence_length: 64 # Maximum sequence length for text input
+  text_encoder_layers: 2 # Number of layers in the text encoder
+  text_hidden_size: 64 # Hidden size for the text encoder
 
-diffusion:
-  num_timesteps: 1000
+scheduler:
+  timesteps: 100
   schedule_type: "linear"
   beta_start: 0.0001
   beta_end: 0.02
 
 training:
+  seed: 42
   batch_size: 64
-  learning_rate: 0.0002
-  num_epochs: 100
+  learning_rate: 0.001
+  epochs: 100
   checkpoint_dir: "checkpoints/"

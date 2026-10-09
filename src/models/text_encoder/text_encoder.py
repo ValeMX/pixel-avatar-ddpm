@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from text_encoder_block import TextEncoderBlock
+from .text_encoder_block import TextEncoderBlock
 
 
 class TextEncoder(nn.Module):

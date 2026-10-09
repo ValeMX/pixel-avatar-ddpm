@@ -1,9 +1,8 @@
-import torch
 import torch.nn as nn
 import torch.nn.functional as f
 
-from resnet_block import ResNetBlock
-from attention_block import AttentionBlock
+from .residual_block import ResidualBlock
+from .attention_block import AttentionBlock
 
 
 class ResNetLayer(nn.Sequential):
@@ -29,7 +28,7 @@ class ResNetLayer(nn.Sequential):
         text_embedding = args[1]
         x = input
         for block in self:
-            if isinstance(block, ResNetBlock):
+            if isinstance(block, ResidualBlock):
                 x = block(x, time_embedding)
             elif isinstance(block, AttentionBlock):
                 x = block(x, text_embedding)

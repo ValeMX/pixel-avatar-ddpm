@@ -42,12 +42,22 @@ class AttentionBlock(nn.Module):
         self.groupnorm = nn.GroupNorm(num_groups, channels)
 
         self.layernorm1 = nn.LayerNorm(channels)
-        self.attention1 = nn.MultiheadAttention(channels, num_heads, batch_first=True)
+        self.attention1 = nn.MultiheadAttention(
+            embed_dim=channels,
+            num_heads=num_heads,
+            batch_first=True,
+            dropout=0.1,
+        )
 
         self.text_projection = nn.Linear(text_embedding_dimension, channels)
 
         self.layernorm2 = nn.LayerNorm(channels)
-        self.attention2 = nn.MultiheadAttention(channels, num_heads, batch_first=True)
+        self.attention2 = nn.MultiheadAttention(
+            embed_dim=channels,
+            num_heads=num_heads,
+            batch_first=True,
+            dropout=0.1,
+        )
 
         self.layernorm3 = nn.LayerNorm(channels)
         self.feedforward = nn.Sequential(

@@ -2,14 +2,14 @@ import math
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as f
+import torch.nn.functional as F
 
-from attention_block import AttentionBlock
-from downsample import DownSample
-from resnet_block import ResNetBlock
-from resnet_layer import ResNetLayer
-from time_encoder import TimeEncoder
-from upsample import UpSample
+from .attention_block import AttentionBlock
+from .downsample import DownSample
+from .residual_block import ResidualBlock
+from .resnet_layer import ResNetLayer
+from .time_encoder import TimeEncoder
+from .upsample import UpSample
 
 
 class ResNet(nn.Module):
@@ -21,7 +21,7 @@ class ResNet(nn.Module):
         spatial_resolutions: int = 2,
         time_embedding_dimension: int = 128,
         text_embedding_dimension: int = 64,
-        num_heads: int = 4,
+        heads: int = 4,
     ):
         """Initialize the ResNet model.
 
@@ -51,7 +51,7 @@ class ResNet(nn.Module):
 
             self.encoder_layers.append(
                 ResNetLayer(
-                    ResNetBlock(
+                    ResidualBlock(
                         input_channels=in_ch,
                         output_channels=out_ch,
                         time_embedding_dimension=time_embedding_dimension,
@@ -59,7 +59,7 @@ class ResNet(nn.Module):
                     AttentionBlock(
                         channels=out_ch,
                         text_embedding_dimension=text_embedding_dimension,
-                        num_heads=num_heads,
+                        num_heads=heads,
                         feedforward_dimension=out_ch * 4,
                     ),
                     DownSample(
@@ -73,7 +73,7 @@ class ResNet(nn.Module):
         # Middle block is a ResNet block that processes the features at the lowest spatial resolution
         mid_ch = base_channels * (2**spatial_resolutions)
         self.middle_block = ResNetLayer(
-            ResNetBlock(
+            ResidualBlock(
                 input_channels=mid_ch,
                 output_channels=mid_ch,
                 time_embedding_dimension=time_embedding_dimension,
@@ -81,10 +81,10 @@ class ResNet(nn.Module):
             AttentionBlock(
                 channels=mid_ch,
                 text_embedding_dimension=text_embedding_dimension,
-                num_heads=num_heads,
+                num_heads=heads,
                 feedforward_dimension=mid_ch * 4,
             ),
-            ResNetBlock(
+            ResidualBlock(
                 input_channels=mid_ch,
                 output_channels=mid_ch,
                 time_embedding_dimension=time_embedding_dimension,
@@ -101,7 +101,7 @@ class ResNet(nn.Module):
 
             self.decoder_layers.append(
                 ResNetLayer(
-                    ResNetBlock(
+                    ResidualBlock(
                         input_channels=in_ch,
                         output_channels=out_ch,
                         time_embedding_dimension=time_embedding_dimension,
@@ -109,7 +109,7 @@ class ResNet(nn.Module):
                     AttentionBlock(
                         channels=out_ch,
                         text_embedding_dimension=text_embedding_dimension,
-                        num_heads=num_heads,
+                        num_heads=heads,
                         feedforward_dimension=out_ch * 4,
                     ),
                     UpSample(
@@ -167,7 +167,7 @@ if __name__ == "__main__":
         spatial_resolutions=2,
         time_embedding_dimension=256,
         text_embedding_dimension=64,
-        num_heads=4,
+        heads=4,
     )
 
     # Create a random input tensor with shape (batch_size, channels, height, width)

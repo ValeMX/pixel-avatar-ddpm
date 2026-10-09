@@ -48,7 +48,7 @@ class Scheduler:
         self,
         original_samples: torch.Tensor,
         timesteps: torch.Tensor,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Adds noise to the original samples based on the specified timesteps.
 
@@ -57,7 +57,7 @@ class Scheduler:
             timesteps (torch.Tensor): The timesteps at which to add noise.
 
         Returns:
-            torch.FloatTensor: The noisy samples.
+            tuple[torch.Tensor, torch.Tensor]: A tuple containing the noisy samples and the generated noise.
         """
 
         alphas_cumprod = self.alphas_cumprod.to(
@@ -96,7 +96,7 @@ class Scheduler:
             + alphas_cumprod_sqrt_one_minus * noise
         )
 
-        return noisy_samples
+        return noisy_samples, noise
 
     def remove_noise(
         self,

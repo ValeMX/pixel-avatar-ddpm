@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as f
 
 
-class ResNetBlock(nn.Module):
+class ResidualBlock(nn.Module):
     """Residual block of the ResNet model.
 
     This block implements a residual connection by adding the input to the output
@@ -19,7 +19,7 @@ class ResNetBlock(nn.Module):
         bias: If True, adds a learnable bias to the convolutional layers. Default is True.
 
     Note:
-        The forward pass of the ResNet block consists of the following steps:
+        The forward pass of the Residual block consists of the following steps:
         1. Normalize and activate the input tensor.
         2. Apply the first convolution to the activated tensor.
         3. Project the time embedding onto the tensor dimension.
@@ -40,7 +40,7 @@ class ResNetBlock(nn.Module):
         bias: bool = True,
     ):
         """Initialize the normalization, activation, and convolution layers."""
-        super(ResNetBlock, self).__init__()
+        super(ResidualBlock, self).__init__()
 
         self.silu = nn.SiLU()
 

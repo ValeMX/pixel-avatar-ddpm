@@ -74,8 +74,8 @@ def extract_samples(
 
 
 if __name__ == "__main__":
-    DATASET_PATH = "data/raw/cartoonset10k"
-    OUTPUT_PATH = "data/samples_by_attribute"
+    dataset_path = "data/raw/cartoonset10k"
+    output_path = "data/samples_by_attribute"
 
     artwork = [
         "chin_length",
@@ -105,5 +105,5 @@ if __name__ == "__main__":
     ]
 
     extract_samples(
-        data_dir=DATASET_PATH, output_dir=OUTPUT_PATH, target_features=artwork
+        data_dir=dataset_path, output_dir=output_path, target_features=artwork + colors + proportions
     )

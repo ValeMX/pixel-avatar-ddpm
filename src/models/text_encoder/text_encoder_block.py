@@ -77,17 +77,3 @@ class TextEncoderBlock(nn.Module):
         # (batch_size, sequence_length, hidden_dimension)
 
         return x
-
-
-if __name__ == "__main__":
-    attention_module = nn.MultiheadAttention(
-        embed_dim=64, num_heads=4, batch_first=True
-    )
-
-    # Create a random input tensor with shape (batch_size, sequence_length, hidden_dimension)
-    input_tensor = torch.randn(2, 10, 64)
-    # Forward pass through the attention module
-    output_tensor, _ = attention_module(input_tensor, input_tensor, input_tensor)
-    # Print the output shape
-    print("Output shape:", output_tensor.shape)  # Expected: (2, 10, 64)
-    print("Model summary:", attention_module)
