@@ -4,6 +4,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
+import csv
 import torch
 import torch.nn as nn
 import tqdm
@@ -133,7 +134,10 @@ def get_captions_from_split(split_path: str, split_type: str = "train") -> list[
 
 
 def save_checkpoint(
-    model: nn.Module, optimizer: Adam, epoch: int, checkpoint_path: str
+    model: nn.Module,
+    optimizer: Adam,
+    epoch: int,
+    checkpoint_path: str,
 ):
     """Save the model and optimizer state to a checkpoint file.
 
@@ -154,6 +158,77 @@ def save_checkpoint(
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     torch.save(checkpoint, checkpoint_path)
+
+
+def clear_checkpoints(checkpoint_path: str):
+    """Clear all checkpoint files in the specified directory.
+
+    Args:
+        checkpoint_path (str): Path to the directory containing checkpoint files.
+    """
+    checkpoint_dir = Path(checkpoint_path)
+    if checkpoint_dir.exists() and checkpoint_dir.is_dir():
+        for file in checkpoint_dir.glob("*.pt"):
+            file.unlink()
+        print(f"Cleared all checkpoints in {checkpoint_dir.resolve()}")
+    else:
+        print(f"No checkpoints found in {checkpoint_dir.resolve()}")
+
+
+def save_model_hyperparameters(
+    vocabulary_path: str,
+    hyperparameters_path: str,
+    tokenizer: Tokenizer,
+    input_channels: int,
+    output_channels: int,
+    base_channels: int,
+    spatial_resolutions: int,
+    time_embedding_dimension: int,
+    text_embedding_dimension: int,
+    heads: int,
+    vocabulary_size: int,
+    text_encoder_layers: int,
+):
+    """Save the model hyperparameters to a file.
+
+    Args:
+        hyperparameters_path (str): Path to the file where the parameters will be saved.
+        vocabulary_path (str): Path to the file where the vocabulary will be saved.
+        tokenizer (Tokenizer): The tokenizer used for the model.
+        input_channels (int): The number of input channels.
+        output_channels (int): The number of output channels.
+        base_channels (int): The base number of channels.
+        spatial_resolutions (int): The spatial resolutions.
+        time_embedding_dimension (int): The dimension of the time embedding.
+        text_embedding_dimension (int): The dimension of the text embedding.
+        heads (int): The number of attention heads.
+        vocabulary_size (int): The size of the vocabulary.
+        text_encoder_layers (int): The number of layers in the text encoder.
+    """
+    # Check if folder exists, if not create it
+    save_dir = Path(hyperparameters_path).parent
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    hyperparameters = {
+        "input_channels": input_channels,
+        "output_channels": output_channels,
+        "base_channels": base_channels,
+        "spatial_resolutions": spatial_resolutions,
+        "time_embedding_dimension": time_embedding_dimension,
+        "text_embedding_dimension": text_embedding_dimension,
+        "heads": heads,
+        "vocabulary_size": vocabulary_size,
+        "text_encoder_layers": text_encoder_layers,
+    }
+
+    tokenizer.save_vocabulary(vocabulary_path)
+    with open(hyperparameters_path, "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=hyperparameters.keys())
+        writer.writeheader()
+        writer.writerow(hyperparameters)
+
+    print(f"Tokenizer vocabulary saved to {vocabulary_path}")
+    print(f"Model hyperparameters saved to {hyperparameters_path}")
 
 
 if __name__ == "__main__":
@@ -239,17 +314,32 @@ if __name__ == "__main__":
         ]
     )
 
-    dataset = AvatarDataset(
+    dataset_train = AvatarDataset(
         data_path=split_path + "/train",
         image_extension="png",
         caption_extension="txt",
         transform=transform,
     )
 
-    dataloader = DataLoader(
-        dataset,
+    dataset_val = AvatarDataset(
+        data_path=split_path + "/validation",
+        image_extension="png",
+        caption_extension="txt",
+        transform=transform,
+    )
+
+    dataloader_train = DataLoader(
+        dataset_train,
         batch_size=batch_size,
         generator=get_generator(seed),
+        drop_last=True,
+    )
+
+    dataloader_val = DataLoader(
+        dataset_val,
+        batch_size=batch_size,
+        generator=get_generator(seed),
+        drop_last=True,
     )
 
     optimizer = Adam(diffusion.parameters(), lr=learning_rate)
@@ -257,20 +347,21 @@ if __name__ == "__main__":
 
     # 6. Start the training loop
     diffusion.train()
-    for epoch in tqdm.tqdm(
+    epoch_bar = tqdm.tqdm(
         range(epochs),
         desc="Training Progress",
         unit="epoch",
         dynamic_ncols=True,
         leave=True,
-        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
-    ):
-        if epoch % 5 == 0 and epoch > 0:
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]{postfix}",
+    )
+    for epoch in epoch_bar:
+        if epoch % 20 == 0 and epoch > 0:
             checkpoint_file = checkpoint_path + f"/epoch_{epoch}.pt"
             save_checkpoint(diffusion, optimizer, epoch, checkpoint_file)
 
         batch_bar = tqdm.tqdm(
-            dataloader,
+            dataloader_train,
             desc=f"Epoch {epoch + 1}/{epochs}",
             unit="batch",
             leave=False,
@@ -296,3 +387,59 @@ if __name__ == "__main__":
 
             if batch_idx % 10 == 0:
                 batch_bar.set_postfix({"loss": f"{loss.item():.4f}"})
+
+        if epoch % 5 == 0 and epoch > 0:
+            loss_val = 0.0
+            with torch.no_grad():
+                diffusion.eval()
+                for images_val, captions_val in dataloader_val:
+                    t_val = torch.randint(
+                        0,
+                        training_steps,
+                        (batch_size,),
+                        device=device,
+                    ).long()
+
+                    x_noise_val, noise_val = scheduler.add_noise(
+                        images_val.to(device),
+                        t_val,
+                    )
+
+                    encoded_val_captions = torch.tensor(
+                        [tokenizer.encode(caption) for caption in captions_val],
+                        dtype=torch.long,
+                        device=device,
+                    )
+
+                    predicted_noise_val = diffusion(
+                        x_noise_val,
+                        t_val,
+                        encoded_val_captions.to(device),
+                    )
+
+                    loss_val += criterion(predicted_noise_val, noise_val).item()
+
+            loss_val /= len(dataloader_val)
+            epoch_bar.set_postfix({"val_loss": f"{loss_val:.4f}"})
+            
+            diffusion.train()
+
+    # 7. Save the final model checkpoint after training
+    final_checkpoint_file = checkpoint_path + f"/final_epoch_{epochs}.pt"
+    # clear_checkpoints(checkpoint_path)
+
+    save_checkpoint(diffusion, optimizer, epochs, final_checkpoint_file)
+    save_model_hyperparameters(
+        vocabulary_path=split_path + f"/tokenizer_vocabulary.csv",
+        hyperparameters_path=split_path + f"/model_hyperparameters.csv",
+        tokenizer=tokenizer,
+        input_channels=resnet_in_channels,
+        output_channels=resnet_out_channels,
+        base_channels=resnet_base_channels,
+        spatial_resolutions=resnet_spatial_resolutions,
+        time_embedding_dimension=resnet_base_channels,
+        text_embedding_dimension=text_hidden_size,
+        heads=resnet_attention_heads,
+        vocabulary_size=vocabulary_size,
+        text_encoder_layers=text_encoder_layers,
+    )
