@@ -13,11 +13,11 @@ class TextEncoder(nn.Module):
     def __init__(
         self,
         vocabulary_size: int,
-        hidden_dimension: int,
-        heads: int,
-        layers: int,
+        hidden_dimension: int = 64,
+        heads: int = 4,
+        layers: int = 2,
     ):
-        """Initialize the text encoder. TODO: default values for the parameters?
+        """Initialize the text encoder.
 
         Args:
             vocabulary_size: Size of the vocabulary.

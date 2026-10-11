@@ -39,14 +39,13 @@ model:
   text_hidden_size: 64 # Hidden size for the text encoder
 
 scheduler:
-  timesteps: 100
-  schedule_type: "linear"
+  timesteps: 1000
   beta_start: 0.0001
   beta_end: 0.02
 
 training:
   seed: 42
-  batch_size: 64
-  learning_rate: 0.001
+  batch_size: 16
+  learning_rate: 0.0001
   epochs: 100
   checkpoint_dir: "checkpoints/"

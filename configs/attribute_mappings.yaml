@@ -39,7 +39,7 @@ eyebrow_weight: # Line weight of eyebrows
   0: "thin line"
   1: "thick line"
 
-face_shape: # Overall shape of the face TODO
+face_shape: # Overall shape of the face
   0: "inverted triangle"
   1: "oblong"
   2: "round"
