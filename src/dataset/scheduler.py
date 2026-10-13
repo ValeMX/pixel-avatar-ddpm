@@ -9,12 +9,6 @@ class Scheduler:
     based on the specified timesteps. The noise schedule is defined by the beta values, which are computed
     between the square roots of the start and end values, then squared. This ensures that the betas are
     distributed more evenly across the training steps, especially for small values of beta.
-
-    Args:
-        generator (torch.Generator): A PyTorch random number generator for reproducibility.
-        training_steps (int): The total number of training steps for the diffusion model.
-        beta_start (float): The starting value of beta for the noise schedule. Default is 1e-4.
-        beta_end (float): The ending value of beta for the noise schedule. Default is 0.02.
     """
 
     def __init__(
@@ -23,22 +17,58 @@ class Scheduler:
         training_steps: int,
         beta_start: float = 1e-4,
         beta_end: float = 0.02,
+        beta_max: float = 0.999,
+        type: str = "linear",
+        s=0.008,
     ) -> None:
-        """Initialize the Scheduler with the specified parameters and compute the noise schedule."""
+        """Initialize the Scheduler with the specified parameters and compute the noise schedule.
+
+        Args:
+            generator (torch.Generator): A PyTorch random number generator for reproducibility.
+            training_steps (int): The total number of training steps for the diffusion model.
+            beta_start (float): The starting value of beta for the noise schedule. Default is 1e-4.
+            beta_end (float): The ending value of beta for the noise schedule. Default is 0.02.
+            beta_max (float): The maximum value of beta for the cosine noise schedule. Default is 0.999.
+            type (str): The type of noise schedule to use. Default is "linear".
+            s (float): The value of s for the cosine noise schedule. Default is 0.008.
+        """
         self.generator = generator
         self.training_steps = training_steps
+        self.beta_start = beta_start
+        self.beta_end = beta_end
+        self.beta_max = beta_max
+        self.type = type
+        self.s = s
 
-        # Betas are computed between the square roots of the start and end values, then squared.
-        # This is done to ensure that the betas are distributed more evenly
-        # across the training steps, especially for small values of beta.
-        self.betas = (
-            torch.linspace(
-                beta_start**0.5, beta_end**0.5, training_steps, dtype=torch.float32
+        if self.type == "linear":
+            # Betas are computed between the square roots of the start and end values, then squared.
+            # This is done to ensure that the betas are distributed more evenly
+            # across the training steps, especially for small values of beta.
+            self.betas = (
+                torch.linspace(
+                    beta_start**0.5, beta_end**0.5, training_steps, dtype=torch.float32
+                )
+                ** 2
             )
-            ** 2
-        )
-        self.alphas = 1.0 - self.betas
-        self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
+
+            self.alphas = 1.0 - self.betas
+            self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
+        elif self.type == "cosine":
+            steps = training_steps + 1
+            t = (
+                torch.linspace(0, training_steps, steps, dtype=torch.float32)
+                / training_steps
+            )
+
+            f_t = torch.cos(((t + s) / (1.0 + s)) * (np.pi / 2.0)) ** 2
+            alphas_cumprod = f_t / f_t[0]
+            betas = 1.0 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+
+            # Applica il clip per evitare instabilità numeriche quando t -> T
+            self.betas = torch.clamp(betas, max=beta_max).to(torch.float32)
+            self.alphas = 1.0 - self.betas
+            self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
+
         self.one = torch.tensor(1.0)
 
         # Timesteps sequence tensor for denoising (training_steps -> 0)
@@ -117,20 +147,26 @@ class Scheduler:
             timestep (int): The timestep at which to remove noise.
             noisy_sample (torch.Tensor): The noisy sample from which noise will be removed.
             predicted_noise (torch.Tensor): The predicted noise to be subtracted from the noisy samples.
+
         Returns:
             torch.Tensor: The denoised sample.
         """
-
         t = timestep
         prev_t = self._get_previous_timestep(t)
 
         # 1. Compute the cumulative products of alphas and betas for the current and previous timesteps.
+        alphas_cumprod = self.alphas_cumprod.to(
+            device=noisy_sample.device, dtype=noisy_sample.dtype
+        )
 
-        alpha_cumprod_t = self.alphas_cumprod[t]
-        alpha_cumprod_t_prev = self.alphas_cumprod[prev_t] if prev_t >= 0 else self.one
+        alpha_cumprod_t = alphas_cumprod[t]
+        alpha_cumprod_t_prev = (
+            alphas_cumprod[prev_t]
+            if prev_t >= 0
+            else self.one.to(noisy_sample.device, dtype=noisy_sample.dtype)
+        )
 
         beta_cumprod_t = 1 - alpha_cumprod_t
-        beta_cumprod_t_prev = 1 - alpha_cumprod_t_prev
         current_alpha_t = alpha_cumprod_t / alpha_cumprod_t_prev
         current_beta_t = 1 - current_alpha_t
 
@@ -143,6 +179,26 @@ class Scheduler:
             noisy_sample - (beta_cumprod_t**0.5) * predicted_noise
         ) / (alpha_cumprod_t**0.5)
 
+        # Clamp the predicted original sample to the range [-1, 1] to avoid numerical instability during training.
+        # This is important because the predicted original sample can sometimes exceed this range due to noise,
+        # which can lead to issues during the denoising process. Clamping ensures that the values remain within a valid range.
+        clip_fraction = (
+            ((pred_original_sample < -1.0) | (pred_original_sample > 1.0))
+            .float()
+            .mean()
+            .item()
+        )
+
+        if t in {999, 900, 700, 500, 300, 100, 10, 0}:
+            print(
+                f"t={t:3d} | "
+                f"clip_fraction={clip_fraction:.2%} | "
+                f"pred_x0_min={pred_original_sample.min().item():.2f} | "
+                f"pred_x0_max={pred_original_sample.max().item():.2f}"
+            )
+
+        pred_original_sample = pred_original_sample.clamp(-1.0, 1.0)
+
         # 3. Compute the mean (µ_t) for the predicted previous sample (x_t-1).
         # Knowing that the formula for the mean (µ_t) is:
         # µ_t = pred_original_sample_coeff * x_0 + current_sample_coeff * x_t
@@ -154,9 +210,9 @@ class Scheduler:
         )
 
         # The coefficient for the current sample is:
-        # current_sample_coeff = (sqrt(alpha_t) * beta_cumprod_t_prev)
+        # current_sample_coeff = (sqrt(alpha_t) * (1 - alpha_cumprod_t_prev)) / beta_cumprod_t
         current_sample_coeff = (
-            current_alpha_t ** (0.5) * beta_cumprod_t_prev / beta_cumprod_t
+            current_alpha_t ** (0.5) * (1 - alpha_cumprod_t_prev) / beta_cumprod_t
         )
 
         # Now the mean (µ_t) for the predicted previous sample (x_t-1) can be computed as:
@@ -172,9 +228,7 @@ class Scheduler:
         # Note: We only add noise from variance if we are not at the last timestep (t = 0).
         variance = 0
         if t > 0:
-            variance = (
-                (1 - alpha_cumprod_t_prev) / (1 - alpha_cumprod_t) * current_beta_t
-            )
+            variance = (1 - alpha_cumprod_t_prev) / beta_cumprod_t * current_beta_t
 
             # Clamp to avoid numerical instability.
             variance = torch.clamp(variance, min=1e-20)
@@ -214,15 +268,18 @@ class Scheduler:
             inference_steps (int): The number of inference steps to use for denoising. Default is 50.
         """
 
-        self.num_inference_steps = inference_steps
-        step_ratio = self.training_steps // self.num_inference_steps
-        timesteps = (
-            (np.arange(0, inference_steps) * step_ratio)
-            .round()[::-1]
-            .copy()
-            .astype(np.int64)
+        self.inference_steps = inference_steps
+
+        self.timesteps = (
+            torch.linspace(
+                self.training_steps - 1,
+                0,
+                inference_steps,
+                dtype=torch.float64,
+            )
+            .round()
+            .to(torch.long)
         )
-        self.timesteps = torch.from_numpy(timesteps)
 
     def _get_previous_timestep(self, timestep: int) -> int:
         """Get the previous timestep for the given timestep during inference.
@@ -237,6 +294,11 @@ class Scheduler:
         Returns:
             int: The previous timestep.
         """
+        t = timestep
+        indices = (self.timesteps == t).nonzero(as_tuple=True)[0]
 
-        prev_t = timestep - self.training_steps // self.num_inference_steps
-        return prev_t
+        idx = int(indices[0])
+        if idx + 1 < len(self.timesteps):
+            return int(self.timesteps[idx + 1])
+
+        return -1

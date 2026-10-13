@@ -22,6 +22,7 @@ class ResNet(nn.Module):
         time_embedding_dimension: int = 128,
         text_embedding_dimension: int = 64,
         heads: int = 4,
+        dropout: float = 0.1,
     ):
         """Initialize the ResNet model.
 
@@ -32,6 +33,8 @@ class ResNet(nn.Module):
             spatial_resolutions: Number of spatial resolution levels. Default is 2.
             time_embedding_dimension: Dimension of the time embedding. Default is 128.
             text_embedding_dimension: Dimension of the text embedding. Default is 64.
+            heads: Number of attention heads. Default is 4.
+            dropout: Dropout rate. Default is 0.1.
         """
         super(ResNet, self).__init__()
 
@@ -55,6 +58,7 @@ class ResNet(nn.Module):
                         input_channels=in_ch,
                         output_channels=out_ch,
                         time_embedding_dimension=time_embedding_dimension,
+                        dropout=dropout,
                     ),
                     AttentionBlock(
                         channels=out_ch,
@@ -77,6 +81,7 @@ class ResNet(nn.Module):
                 input_channels=mid_ch,
                 output_channels=mid_ch,
                 time_embedding_dimension=time_embedding_dimension,
+                dropout=dropout,
             ),
             AttentionBlock(
                 channels=mid_ch,
@@ -88,6 +93,7 @@ class ResNet(nn.Module):
                 input_channels=mid_ch,
                 output_channels=mid_ch,
                 time_embedding_dimension=time_embedding_dimension,
+                dropout=dropout,
             ),
         )
 
@@ -105,6 +111,7 @@ class ResNet(nn.Module):
                         input_channels=in_ch,
                         output_channels=out_ch,
                         time_embedding_dimension=time_embedding_dimension,
+                        dropout=dropout,
                     ),
                     AttentionBlock(
                         channels=out_ch,

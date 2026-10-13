@@ -1,16 +1,19 @@
 import sys
 from pathlib import Path
 
+from PIL import Image
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import tqdm
 import yaml
 
-from torch.optim import Adam
+from torch.optim import Adam, AdamW
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
@@ -135,46 +138,6 @@ def get_captions_from_split(split_path: str, split_type: str = "train") -> list[
     return captions
 
 
-def save_checkpoint(
-    checkpoint_path: str,
-    model: nn.Module,
-    optimizer: Adam,
-    epoch: int,
-    loss_val: float,
-):
-    """Save the model and optimizer state to a checkpoint file.
-
-    Args:
-        checkpoint_path (str): Path to the checkpoint file.
-        model (nn.Module): The model to save.
-        optimizer (Adam): The optimizer to save.
-        epoch (int): The current epoch number.
-        loss_val (float): The validation loss at the current epoch.
-    """
-    checkpoint = {
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "loss_val": loss_val,
-    }
-
-    # Check if folder exists, if not create it
-    checkpoint_dir = Path(checkpoint_path).parent
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-    torch.save(checkpoint, checkpoint_path)
-
-
-def load_checkpoint(checkpoint_path: str) -> dict[str, Any]:
-    """Load a checkpoint from a file.
-
-    Args:
-        checkpoint_path (str): Path to the checkpoint file.
-    """
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    return checkpoint
-
-
 def clear_checkpoints(checkpoint_path: str, keep_last: bool = True):
     """Clear all checkpoint files in the specified directory. TODO non per forza serve il penultimo
 
@@ -256,6 +219,7 @@ def train(
     validation_interval: int = 10,
     patience: int = 3,
     patience_delta: float = 0.01,
+    dropout: float = 0.1,
     checkpoint_path: str = "./checkpoints",
 ) -> dict[int, float]:
     """Train the diffusion model.
@@ -319,11 +283,20 @@ def train(
                 t,
             )
 
-            encoded_captions = torch.tensor(
-                [tokenizer.encode(caption) for caption in captions],
-                dtype=torch.long,
-                device=device,
-            )
+            captions_train = captions
+            if dropout > 0.0:
+                captions_train = [
+                    captions[i] if torch.rand(1).item() > dropout else ""
+                    for i in range(current_batch_size)
+                ]
+
+            # encoded_captions = torch.tensor(
+            #     [tokenizer.encode(caption) for caption in captions_train],
+            #     dtype=torch.long,
+            #     device=device,
+            # )
+
+            encoded_captions = torch.zeros((current_batch_size, 64), dtype=torch.long, device=device)
 
             predicted_noise = diffusion(x_noise, t, encoded_captions.to(device))
 
@@ -335,8 +308,11 @@ def train(
             optimizer.step()
 
             if batch_idx % 10 == 0:
-                batch_bar.set_postfix({"loss": f"{loss.item():.4f}"})
+                epoch_bar.set_postfix(
+                    {"loss": f"{loss.item():.4f}", "loss_val": f"{loss_val:.4f}"}
+                )
 
+        # Validation step
         if (epoch % validation_interval == 0 and epoch > 0) or epoch == epochs - 1:
             old_loss_val = loss_val
             loss_val = 0.0
@@ -383,25 +359,22 @@ def train(
                 checkpoint_file = checkpoint_path + f"/epoch_{epoch}.pt"
                 save_checkpoint(checkpoint_file, diffusion, optimizer, epoch, loss_val)
 
-                epoch_bar.set_postfix(
-                    {"val_loss": f"{loss_val:.4f}", "status": "Checkpoint saved"}
-                )
+                # epoch_bar.set_postfix(
+                #     {"val_loss": f"{loss_val:.4f}", "status": "Checkpoint saved"}
+                # )
             else:
                 patience_counter += 1
-                epoch_bar.set_postfix(
-                    {
-                        "val_loss": f"{loss_val:.4f}",
-                        "status": f"No improvement ({patience_counter}/{patience})",
-                    }
-                )
+                # epoch_bar.set_postfix(
+                #     {
+                #         "val_loss": f"{loss_val:.4f}",
+                #         "status": f"No improvement ({patience_counter}/{patience})",
+                #     }
+                # )
 
             diffusion.train()
 
-            if patience_counter >= patience:
-                print(
-                    f"Early stopping triggered after {patience} validation checks with no improvement at epoch {epoch}."
-                )
-                break
+            # if patience_counter >= patience:
+            #     break
 
     return losses
 
@@ -521,29 +494,38 @@ if __name__ == "__main__":
         heads=resnet_attention_heads,
         vocabulary_size=vocabulary_size,
         text_encoder_layers=text_encoder_layers,
+        dropout=0,
     ).to(device)
 
     # 4. Initialize the scheduler for the diffusion process
+    training_steps = config["scheduler"]["timesteps"]
     beta_start = config["scheduler"]["beta_start"]
     beta_end = config["scheduler"]["beta_end"]
-    training_steps = config["scheduler"]["timesteps"]
+    beta_max = config["scheduler"]["beta_max"]
+    s = config["scheduler"]["s"]
+    type = config["scheduler"]["type"]
 
     scheduler = Scheduler(
         generator=get_generator(seed, device),
         training_steps=training_steps,
         beta_start=beta_start,
         beta_end=beta_end,
+        beta_max=beta_max,
+        type=type,
+        s=s,
     )
 
     # 5. Set up the training parameters
     epochs = config["training"]["epochs"]
     batch_size = config["training"]["batch_size"]
     learning_rate = config["training"]["learning_rate"]
+    dropout = config["training"]["dropout"]
+    validation_interval = config["training"]["validation_interval"]
 
     transform = transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5, 0.5]),
         ]
     )
 
@@ -565,7 +547,6 @@ if __name__ == "__main__":
         dataset_train,
         batch_size=batch_size,
         generator=get_generator(seed),
-        shuffle=True,
     )
 
     dataloader_val = DataLoader(
@@ -609,7 +590,7 @@ if __name__ == "__main__":
         if chosen_checkpoint in available_checkpoints:
             print(f"Resuming training from checkpoint: {chosen_checkpoint}")
             checkpoint_file = checkpoint_path + f"/{chosen_checkpoint}"
-            checkpoint = load_checkpoint(checkpoint_file)
+            checkpoint = load_checkpoint(checkpoint_file, device)
             diffusion.load_state_dict(checkpoint["model_state_dict"])
             optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             start_epoch = checkpoint.get("epoch", 0)
@@ -631,6 +612,8 @@ if __name__ == "__main__":
         optimizer=optimizer,
         criterion=criterion,
         start_loss=loss_val,
+        validation_interval=validation_interval,
+        dropout=dropout,
         checkpoint_path=checkpoint_path,
     )
 

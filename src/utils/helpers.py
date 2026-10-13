@@ -1,9 +1,9 @@
-# src/utils/helpers.py
 import torch
+import torch.nn as nn
 import yaml
-import shutil
 
 from pathlib import Path
+from torch.optim import Adam
 from typing import Any
 
 
@@ -153,6 +153,46 @@ def load_hyperparameters(hyperparameters_path: str) -> dict[str, Any] | None:
     except FileNotFoundError:
         print(f"Error: Hyperparameters file in {hyperparameters_path} not found.")
         return None
+
+
+def save_checkpoint(
+    checkpoint_path: str,
+    model: nn.Module,
+    optimizer: Adam,
+    epoch: int,
+    loss_val: float,
+):
+    """Save the model and optimizer state to a checkpoint file.
+
+    Args:
+        checkpoint_path (str): Path to the checkpoint file.
+        model (nn.Module): The model to save.
+        optimizer (Adam): The optimizer to save.
+        epoch (int): The current epoch number.
+        loss_val (float): The validation loss at the current epoch.
+    """
+    checkpoint = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "loss_val": loss_val,
+    }
+
+    # Check if folder exists, if not create it
+    checkpoint_dir = Path(checkpoint_path).parent
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    torch.save(checkpoint, checkpoint_path)
+
+
+def load_checkpoint(checkpoint_path: str, device: torch.device) -> dict[str, Any]:
+    """Load a checkpoint from a file.
+
+    Args:
+        checkpoint_path (str): Path to the checkpoint file.
+    """
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    return checkpoint
 
 
 if __name__ == "__main__":

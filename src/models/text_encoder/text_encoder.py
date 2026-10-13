@@ -16,6 +16,7 @@ class TextEncoder(nn.Module):
         hidden_dimension: int = 64,
         heads: int = 4,
         layers: int = 2,
+        dropout: float = 0.1,
     ):
         """Initialize the text encoder.
 
@@ -37,6 +38,7 @@ class TextEncoder(nn.Module):
                     hidden_dimension=hidden_dimension,
                     num_heads=heads,
                     feedforward_dimension=hidden_dimension * 4,
+                    dropout=dropout,
                 )
                 for _ in range(layers)
             ]

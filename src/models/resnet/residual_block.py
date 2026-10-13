@@ -37,6 +37,7 @@ class ResidualBlock(nn.Module):
         num_groups: int = 32,
         kernel_size: int = 3,
         padding: int = 1,
+        dropout: float = 0.1,
         bias: bool = True,
     ):
         """Initialize the normalization, activation, and convolution layers."""
@@ -56,6 +57,9 @@ class ResidualBlock(nn.Module):
             padding=padding,
             bias=bias,
         )
+
+        self.dropout = nn.Dropout(dropout)
+
         self.convolution_output_output = nn.Conv2d(
             output_channels,
             output_channels,
@@ -128,13 +132,19 @@ class ResidualBlock(nn.Module):
         x = self.silu(x)
         # (batch_size, output_channels, height, width)
 
-        # 6. Apply the second convolution to the activated tensor.
+        # 6. Apply dropout to the activated tensor.
+        # Shape before and after this operation:
+        # (batch_size, output_channels, height, width)
+        x = self.dropout(x)
+        # (batch_size, output_channels, height, width)
+
+        # 7. Apply the second convolution to the activated tensor.
         # Shape before and after this operation:
         # (batch_size, output_channels, height, width)
         x = self.convolution_output_output(x)
         # (batch_size, output_channels, height, width)
 
-        # 7. Add the residual connection to the output tensor.
+        # 8. Add the residual connection to the output tensor.
         # Shape before and after this operation:
         # (batch_size, output_channels, height, width)
         x = x + self.convolution_residual(residue)

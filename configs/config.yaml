@@ -24,10 +24,10 @@ dataset:
 
 model:
   # ResNet Parameters
-  resnet_in_channels: 3 # Number of input channels (RGB images)
-  resnet_out_channels: 3 # Number of output channels (RGB images)
+  resnet_in_channels: 4 # Number of input channels (RGB images)
+  resnet_out_channels: 4 # Number of output channels (RGB images)
   resnet_base_channels: 64 # Base number of channels in the ResNet
-  resnet_spatial_resolutions: 2 # Number of spatial resolution levels in the ResNet
+  resnet_spatial_resolutions: 3 # Number of spatial resolution levels in the ResNet
   resnet_attention_heads: 4 # Number of attention heads in the ResNet
 
   # Time Encoder Parameters
@@ -35,17 +35,22 @@ model:
 
   # Text Encoder Parameters
   sequence_length: 64 # Maximum sequence length for text input
-  text_encoder_layers: 2 # Number of layers in the text encoder
+  text_encoder_layers: 3 # Number of layers in the text encoder
   text_hidden_size: 64 # Hidden size for the text encoder
 
 scheduler:
-  timesteps: 1000
+  timesteps: 100
   beta_start: 0.0001
   beta_end: 0.02
+  beta_max: 0.999 # Maximum value of beta for the cosine noise schedule
+  s: 0.008 # Value of s for the cosine noise schedule
+  type: "linear" # Type of noise schedule to use ("linear" or "cosine")
 
 training:
   seed: 42
-  batch_size: 16
+  epochs: 20000
+  batch_size: 4
   learning_rate: 0.0001
-  epochs: 100
+  dropout: 0 # Dropout rate for Classifier-Free Guidance (CFG)
+  validation_interval: 500 # Interval (in epochs) for validation during training
   checkpoint_dir: "checkpoints/"

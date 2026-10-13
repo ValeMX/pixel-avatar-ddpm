@@ -18,6 +18,7 @@ class Diffusion(nn.Module):
         heads: int,
         vocabulary_size: int,
         text_encoder_layers: int,
+        dropout: float = 0.1,
     ):
         super(Diffusion, self).__init__()
 
@@ -29,6 +30,7 @@ class Diffusion(nn.Module):
             time_embedding_dimension=time_embedding_dimension,
             text_embedding_dimension=text_embedding_dimension,
             heads=heads,
+            dropout=dropout,
         )
 
         self.text_encoder = TextEncoder(
@@ -36,6 +38,7 @@ class Diffusion(nn.Module):
             hidden_dimension=text_embedding_dimension,
             heads=heads,
             layers=text_encoder_layers,
+            dropout=dropout,
         )
 
     def forward(
