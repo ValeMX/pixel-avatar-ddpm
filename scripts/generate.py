@@ -69,11 +69,11 @@ def generate(
 
         scheduler.set_inference_timesteps(inference_steps)
 
-        output_shape = (1, 4, output_size, output_size)
+        output_shape = (1, 3, output_size, output_size)
         model_output = torch.randn(output_shape, generator=generator, device=device)
 
-        # timesteps = tqdm(scheduler.timesteps)
-        for i, timestep in enumerate(scheduler.timesteps):
+        timesteps = tqdm(scheduler.timesteps)
+        for i, timestep in enumerate(timesteps):
             model_input = model_output
             model_timestep = timestep
             model_timestep = model_timestep.unsqueeze(0)
@@ -93,44 +93,6 @@ def generate(
                 )
 
             model_output = scheduler.remove_noise(int(timestep), model_output, output)
-
-            debug_timesteps = {999, 900, 700, 500, 300, 200, 100, 50, 10, 0}
-
-            if int(timestep) in debug_timesteps:
-                print(
-                    f"Pred noise -> min: {output.min():.2f}, max: {output.max():.2f}, mean: {output.mean():.2f}"
-                )
-
-                alpha_bar = scheduler.alphas_cumprod[int(timestep)].to(
-                    device=model_output.device,
-                    dtype=model_output.dtype,
-                )
-
-                predicted_x0 = (
-                    model_output - torch.sqrt(1.0 - alpha_bar) * output
-                ) / torch.sqrt(alpha_bar)
-
-                predicted_x0 = predicted_x0.clamp(-1.0, 1.0)
-
-                preview = scale(
-                    predicted_x0.detach().cpu(),
-                    (-1, 1),
-                    (0, 255),
-                    clamp=True,
-                )
-
-                preview = preview[0].permute(1, 2, 0).to(torch.uint8).numpy()
-
-                debug_image = Image.fromarray(preview)
-                debug_image = debug_image.resize(
-                    (256, 256),
-                    Image.Resampling.NEAREST,
-                )
-
-                debug_image.save(f"predicted_x0_t{int(timestep):04d}.png")
-                print(
-                    f"Step {i} (t={timestep}) -> min: {model_output.min():.2f}, max: {model_output.max():.2f}, mean: {model_output.mean():.2f}"
-                )
 
         images = scale(model_output, (-1, 1), (0, 255), clamp=True)
         images = images.permute(0, 2, 3, 1)
@@ -240,7 +202,7 @@ if __name__ == "__main__":
     s = config["scheduler"]["s"]
 
     scheduler = Scheduler(
-        generator=get_generator(seed, device),
+        generator=get_generator(21, device),
         training_steps=training_steps,
         beta_start=beta_start,
         beta_end=beta_end,
@@ -284,7 +246,7 @@ if __name__ == "__main__":
             cfg=False,
             cfg_scale=3.0,
             output_size=32,
-            inference_steps=training_steps,
+            inference_steps=250,
             device=device,
         )
 

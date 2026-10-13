@@ -159,6 +159,7 @@ def save_checkpoint(
     checkpoint_path: str,
     model: nn.Module,
     optimizer: Adam,
+    lr_scheduler: torch.optim.lr_scheduler.LambdaLR,
     epoch: int,
     loss_val: float,
 ):
@@ -168,6 +169,7 @@ def save_checkpoint(
         checkpoint_path (str): Path to the checkpoint file.
         model (nn.Module): The model to save.
         optimizer (Adam): The optimizer to save.
+        lr_scheduler (torch.optim.lr_scheduler.LambdaLR): The learning rate scheduler to save.
         epoch (int): The current epoch number.
         loss_val (float): The validation loss at the current epoch.
     """
@@ -175,6 +177,7 @@ def save_checkpoint(
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
+        "lr_scheduler_state_dict": lr_scheduler.state_dict(),
         "loss_val": loss_val,
     }
 

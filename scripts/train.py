@@ -6,6 +6,7 @@ from PIL import Image
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
+import math
 import os
 import torch
 import torch.nn as nn
@@ -14,6 +15,7 @@ import tqdm
 import yaml
 
 from torch.optim import Adam, AdamW
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
@@ -203,22 +205,51 @@ def save_model_hyperparameters(
     print(f"Model hyperparameters saved to {hyperparameters_path}")
 
 
+def get_lr_scheduler(
+    optimizer: torch.optim.Optimizer,
+    total_steps: int,
+    warmup_steps: int = 200,
+    ratio: float = 0.05,
+) -> torch.optim.lr_scheduler.LambdaLR:
+    """Get a learning rate scheduler that implements a warmup followed by a cosine decay.
+
+    Args:
+        optimizer (torch.optim.Optimizer): The optimizer for which to schedule the learning rate.
+        total_steps (int): Total number of training steps.
+        warmup_steps (int, optional): Number of steps to linearly increase the learning rate. Default is 200.
+        ratio (float, optional): Minimum learning rate as a fraction of the initial learning rate. Default is 0.05.
+
+    Returns:
+        torch.optim.lr_scheduler.LambdaLR: A learning rate scheduler that can be used with the optimizer.
+    """
+
+    def lr_lambda(step):
+        if step < warmup_steps:
+            return (step + 1) / warmup_steps
+        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        cosine = 0.5 * (1 + math.cos(math.pi * progress))
+        return ratio + (1 - ratio) * cosine
+
+    return LambdaLR(optimizer, lr_lambda)
+
+
 def train(
     epochs: int,
-    batch_size: int,
     training_steps: int,
     device: torch.device,
+    generator: torch.Generator,
     diffusion: Diffusion,
     scheduler: Scheduler,
     dataloader_train: DataLoader,
     dataloader_val: DataLoader,
-    optimizer: Adam,
+    optimizer: AdamW,
+    lr_scheduler: LambdaLR,
     criterion: nn.Module,
     start_epoch: int = 0,
     start_loss: float = float("inf"),
     validation_interval: int = 10,
-    patience: int = 3,
-    patience_delta: float = 0.01,
+    patience: int = 10,
+    patience_delta: float = 0.0001,
     dropout: float = 0.1,
     checkpoint_path: str = "./checkpoints",
 ) -> dict[int, float]:
@@ -226,14 +257,15 @@ def train(
 
     Args:
         epochs (int): Number of training epochs.
-        batch_size (int): Size of each training batch.
         training_steps (int): Number of training steps for the diffusion process.
         device (torch.device): Device to run the training on (CPU or GPU).
+        generator (torch.Generator): A PyTorch random number generator for reproducibility.
         diffusion (Diffusion): The diffusion model to train.
         scheduler (Scheduler): The scheduler for the diffusion process.
         dataloader_train (DataLoader): DataLoader for the training dataset.
         dataloader_val (DataLoader): DataLoader for the validation dataset.
-        optimizer (Adam): Optimizer for updating model parameters.
+        optimizer (AdamW): Optimizer for updating model parameters.
+        lr_scheduler (LambdaLR): The learning rate scheduler.
         criterion (nn.Module): Loss function to compute the loss.
         start_epoch (int): The epoch to start training from. Default is 0.
         validation_interval (int): The interval (in epochs) at which to perform validation. Default is 10.
@@ -243,8 +275,8 @@ def train(
     Returns:
         dict[int, float]: A dictionary containing the validation loss for each validation step.
     """
-    best_loss_val = float("inf")
-    loss_val = start_loss
+    best_loss_val = start_loss
+    loss_val = float("inf")
     losses = {}
 
     patience_counter = 0
@@ -290,13 +322,11 @@ def train(
                     for i in range(current_batch_size)
                 ]
 
-            # encoded_captions = torch.tensor(
-            #     [tokenizer.encode(caption) for caption in captions_train],
-            #     dtype=torch.long,
-            #     device=device,
-            # )
-
-            encoded_captions = torch.zeros((current_batch_size, 64), dtype=torch.long, device=device)
+            encoded_captions = torch.tensor(
+                [tokenizer.encode(caption) for caption in captions_train],
+                dtype=torch.long,
+                device=device,
+            )
 
             predicted_noise = diffusion(x_noise, t, encoded_captions.to(device))
 
@@ -306,6 +336,7 @@ def train(
             # Gradient clipping to prevent exploding gradients
             torch.nn.utils.clip_grad_norm_(diffusion.parameters(), max_norm=1.0)
             optimizer.step()
+            lr_scheduler.step()
 
             if batch_idx % 10 == 0:
                 epoch_bar.set_postfix(
@@ -314,69 +345,105 @@ def train(
 
         # Validation step
         if (epoch % validation_interval == 0 and epoch > 0) or epoch == epochs - 1:
-            old_loss_val = loss_val
-            loss_val = 0.0
+            loss_val = evaluate(
+                diffusion=diffusion,
+                scheduler=scheduler,
+                dataloader=dataloader_val,
+                tokenizer=tokenizer,
+                criterion=criterion,
+                device=device,
+                training_steps=training_steps,
+                generator=generator,
+            )
 
-            with torch.no_grad():
-                diffusion.eval()
-                for images_val, captions_val in dataloader_val:
-                    current_batch_size_val = images_val.size(0)
-                    t_val = torch.randint(
-                        0,
-                        training_steps,
-                        (current_batch_size_val,),
-                        device=device,
-                    ).long()
-
-                    x_noise_val, noise_val = scheduler.add_noise(
-                        images_val.to(device),
-                        t_val,
-                    )
-
-                    encoded_val_captions = torch.tensor(
-                        [tokenizer.encode(caption) for caption in captions_val],
-                        dtype=torch.long,
-                        device=device,
-                    )
-
-                    predicted_noise_val = diffusion(
-                        x_noise_val,
-                        t_val,
-                        encoded_val_captions.to(device),
-                    )
-
-                    loss_val += criterion(predicted_noise_val, noise_val).item()
-
-            loss_val /= len(dataloader_val)
             losses[epoch] = loss_val
 
-            if best_loss_val - loss_val > patience_delta:
+            save_checkpoint(
+                checkpoint_path + "/last.pt",
+                diffusion,
+                optimizer,
+                lr_scheduler,
+                epoch,
+                loss_val,
+            )
+
+            if loss_val < best_loss_val * (1 - patience_delta):
                 best_loss_val = loss_val
                 patience_counter = 0
-
-                # TODO forse non serve l'ultimo checkpoint
-                clear_checkpoints(checkpoint_path, keep_last=True)
-                checkpoint_file = checkpoint_path + f"/epoch_{epoch}.pt"
-                save_checkpoint(checkpoint_file, diffusion, optimizer, epoch, loss_val)
-
-                # epoch_bar.set_postfix(
-                #     {"val_loss": f"{loss_val:.4f}", "status": "Checkpoint saved"}
-                # )
+                save_checkpoint(
+                    checkpoint_path + "/best.pt",
+                    diffusion,
+                    optimizer,
+                    lr_scheduler,
+                    epoch,
+                    loss_val,
+                )
             else:
                 patience_counter += 1
-                # epoch_bar.set_postfix(
-                #     {
-                #         "val_loss": f"{loss_val:.4f}",
-                #         "status": f"No improvement ({patience_counter}/{patience})",
-                #     }
-                # )
-
-            diffusion.train()
-
-            # if patience_counter >= patience:
-            #     break
+            if patience_counter >= patience:
+                break
 
     return losses
+
+
+@torch.no_grad()
+def evaluate(
+    diffusion: Diffusion,
+    scheduler: Scheduler,
+    dataloader: DataLoader,
+    tokenizer: Tokenizer,
+    criterion: nn.Module,
+    device: torch.device,
+    training_steps: int,
+    generator: torch.Generator,
+    n_t: int = 10,
+):
+    """Evaluate the diffusion model on the validation dataset.
+
+    Args:
+        diffusion (Diffusion): The diffusion model to evaluate.
+        scheduler (Scheduler): The scheduler for the diffusion process.
+        dataloader (DataLoader): DataLoader for the validation dataset.
+        tokenizer (Tokenizer): The tokenizer used for encoding captions.
+        criterion (nn.Module): Loss function to compute the loss.
+        device (torch.device): Device to run the evaluation on (CPU or GPU).
+        training_steps (int): Number of training steps for the diffusion process.
+        generator (torch.Generator): A PyTorch random number generator for reproducibility.
+        n_t (int, optional): Number of timesteps to evaluate. Default is 10.
+
+    Returns:
+        float: The average loss over the validation dataset.
+    """
+    diffusion.eval()
+
+    # Create a tensor of timesteps to evaluate
+    ts = torch.linspace(0, training_steps - 1, n_t).long()
+
+    alphas_cumprod = scheduler.alphas_cumprod.to(device)
+    total, count = 0.0, 0
+
+    for images, captions in dataloader:
+        images = images.to(device)
+
+        tokens = torch.tensor(
+            [tokenizer.encode(c) for c in captions],
+            dtype=torch.long,
+            device=device,
+        )
+
+        for t_value in ts:
+            t = torch.full(
+                (images.size(0),), int(t_value), device=device, dtype=torch.long
+            )
+
+            noise = torch.randn(images.shape, generator=generator, device=device)
+            ab = alphas_cumprod[t].view(-1, 1, 1, 1)
+            x_t = ab.sqrt() * images + (1 - ab).sqrt() * noise
+            total += criterion(diffusion(x_t, t, tokens), noise).item() * images.size(0)
+            count += images.size(0)
+
+    diffusion.train()
+    return total / count
 
 
 if __name__ == "__main__":
@@ -525,7 +592,7 @@ if __name__ == "__main__":
     transform = transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5, 0.5]),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]
     )
 
@@ -555,7 +622,9 @@ if __name__ == "__main__":
         generator=get_generator(seed),
     )
 
-    optimizer = Adam(diffusion.parameters(), lr=learning_rate)
+    optimizer = AdamW(diffusion.parameters(), lr=learning_rate)
+    steps = epochs * len(dataloader_train)
+    lr_scheduler = get_lr_scheduler(optimizer, total_steps=steps, warmup_steps=10)
     criterion = nn.MSELoss()
 
     # 6. Save the model hyperparameters and tokenizer vocabulary for reproducibility
@@ -593,6 +662,7 @@ if __name__ == "__main__":
             checkpoint = load_checkpoint(checkpoint_file, device)
             diffusion.load_state_dict(checkpoint["model_state_dict"])
             optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            lr_scheduler.load_state_dict(checkpoint["lr_scheduler_state_dict"])
             start_epoch = checkpoint.get("epoch", 0)
             loss_val = checkpoint.get("loss_val", float("inf"))
         else:
@@ -602,14 +672,15 @@ if __name__ == "__main__":
     losses = train(
         start_epoch=start_epoch,
         epochs=epochs,
-        batch_size=batch_size,
         training_steps=training_steps,
         device=device,
+        generator=get_generator(seed, device),
         diffusion=diffusion,
         scheduler=scheduler,
         dataloader_train=dataloader_train,
         dataloader_val=dataloader_val,
         optimizer=optimizer,
+        lr_scheduler=lr_scheduler,
         criterion=criterion,
         start_loss=loss_val,
         validation_interval=validation_interval,

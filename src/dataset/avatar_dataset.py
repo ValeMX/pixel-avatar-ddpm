@@ -46,7 +46,7 @@ class AvatarDataset(Dataset):
         caption_path = self.caption_paths[idx]
 
         # Load the image
-        image = Image.open(image_path).convert("RGBA")
+        image = Image.open(image_path).convert("RGB")
 
         # Load the caption
         with open(caption_path, "r") as f:

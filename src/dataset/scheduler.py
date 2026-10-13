@@ -182,22 +182,7 @@ class Scheduler:
         # Clamp the predicted original sample to the range [-1, 1] to avoid numerical instability during training.
         # This is important because the predicted original sample can sometimes exceed this range due to noise,
         # which can lead to issues during the denoising process. Clamping ensures that the values remain within a valid range.
-        clip_fraction = (
-            ((pred_original_sample < -1.0) | (pred_original_sample > 1.0))
-            .float()
-            .mean()
-            .item()
-        )
-
-        if t in {999, 900, 700, 500, 300, 100, 10, 0}:
-            print(
-                f"t={t:3d} | "
-                f"clip_fraction={clip_fraction:.2%} | "
-                f"pred_x0_min={pred_original_sample.min().item():.2f} | "
-                f"pred_x0_max={pred_original_sample.max().item():.2f}"
-            )
-
-        pred_original_sample = pred_original_sample.clamp(-1.0, 1.0)
+        #pred_original_sample = pred_original_sample.clamp(-1.0, 1.0)
 
         # 3. Compute the mean (µ_t) for the predicted previous sample (x_t-1).
         # Knowing that the formula for the mean (µ_t) is:

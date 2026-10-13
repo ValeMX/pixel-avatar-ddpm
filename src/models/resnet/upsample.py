@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as f
+import torch.nn.functional as F
 
 
 class UpSample(nn.Module):
@@ -13,7 +13,7 @@ class UpSample(nn.Module):
         input_channels: Number of channels in the input tensor.
         output_channels: Number of channels in the output tensor.
         scale_factor: Factor by which to increase the spatial dimensions. Default is 2.
-        mode: Interpolation mode to use for upsampling. Default is 'bilinear'.
+        mode: Interpolation mode to use for upsampling. Default is 'nearest'.
     """
 
     def __init__(
@@ -21,16 +21,13 @@ class UpSample(nn.Module):
         input_channels: int,
         output_channels: int,
         scale_factor: int = 2,
-        mode: str = "bilinear",
+        mode: str = "nearest",
     ):
         """Initialize the UpSample module."""
         super(UpSample, self).__init__()
 
-        self.interpolation = nn.Upsample(
-            scale_factor=scale_factor,
-            mode=mode,
-            align_corners=True,
-        )
+        self.scale_factor = scale_factor
+        self.mode = mode
 
         self.convolution = nn.Conv2d(
             input_channels,
@@ -49,6 +46,6 @@ class UpSample(nn.Module):
         Returns:
             Output tensor of shape (batch_size, output_channels, height*scale_factor, width*scale_factor).
         """
-        x = self.interpolation(x)
+        x = F.interpolate(x, scale_factor=self.scale_factor, mode=self.mode)
         x = self.convolution(x)
         return x

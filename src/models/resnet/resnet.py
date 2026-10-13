@@ -48,10 +48,10 @@ class ResNet(nn.Module):
 
         # Encoding is done by a series of ResNet blocks followed by downsampling layers
         self.encoder_layers = nn.ModuleList()
+        self.downsample_layers = nn.ModuleList()
         for i in range(spatial_resolutions):
-            in_ch = base_channels * (2**i)
-            out_ch = base_channels * (2 ** (i + 1))
-
+            in_ch, out_ch = base_channels * (2**i), base_channels * (2 ** (i + 1))
+            # TODO provare a fare 2 res-att prima di downsample
             self.encoder_layers.append(
                 ResNetLayer(
                     ResidualBlock(
@@ -66,11 +66,14 @@ class ResNet(nn.Module):
                         num_heads=heads,
                         feedforward_dimension=out_ch * 4,
                     ),
-                    DownSample(
-                        input_channels=out_ch,
-                        output_channels=out_ch,
-                        scale_factor=2,
-                    ),
+                )
+            )
+
+            self.downsample_layers.append(
+                DownSample(
+                    input_channels=out_ch,
+                    output_channels=out_ch,
+                    scale_factor=2,
                 )
             )
 
@@ -100,10 +103,15 @@ class ResNet(nn.Module):
         # Decoding is done by a series of ResNet blocks followed by upsampling layers
         # Note: The input channels for the decoder layers are doubled because
         # of the skip connections from the encoder layers
+        self.upsample_layers = nn.ModuleList()
         self.decoder_layers = nn.ModuleList()
         for i in range(spatial_resolutions - 1, -1, -1):
-            in_ch = base_channels * (2 ** (i + 2))
-            out_ch = base_channels * (2**i)
+            up_ch = base_channels * (2 ** (i + 1))
+            in_ch, out_ch = base_channels * (2 ** (i + 2)), base_channels * (2**i)
+
+            self.upsample_layers.append(
+                UpSample(input_channels=up_ch, output_channels=up_ch, scale_factor=2)
+            )
 
             self.decoder_layers.append(
                 ResNetLayer(
@@ -119,17 +127,14 @@ class ResNet(nn.Module):
                         num_heads=heads,
                         feedforward_dimension=out_ch * 4,
                     ),
-                    UpSample(
-                        input_channels=out_ch,
-                        output_channels=out_ch,
-                        scale_factor=2,
-                    ),
                 )
             )
 
         # Final convolution layer to map the features to the desired output channels
-        self.final_convolution = nn.Conv2d(
-            base_channels, output_channels, kernel_size=3, padding=1
+        self.final_convolution = nn.Sequential(
+            nn.GroupNorm(num_groups=32, num_channels=base_channels),
+            nn.SiLU(),
+            nn.Conv2d(base_channels, output_channels, kernel_size=3, padding=1),
         )
 
     def forward(
@@ -145,19 +150,19 @@ class ResNet(nn.Module):
         x = self.initial_convolution(x)
 
         # Encoder: pass through the ResNet blocks and downsampling layers, storing skip connections
-        skip_connections = []
-        for layer in self.encoder_layers:
+        skips = []
+        for layer, downsample in zip(self.encoder_layers, self.downsample_layers):
             x = layer(x, time_embedding, text_embedding)
-            skip_connections.append(x)
-
+            skips.append(x)
+            x = downsample(x)
+           
         # Middle block: process the features at the lowest spatial resolution
         x = self.middle_block(x, time_embedding, text_embedding)
 
         # Decoder: pass through the ResNet blocks and upsampling layers, using skip connections from the encoder
-        for layer in self.decoder_layers:
-            # Concatenate the skip connection with the current features
-            skip = skip_connections.pop()
-            x = torch.cat([x, skip], dim=1)
+        for layer, upsample in zip(self.decoder_layers, self.upsample_layers):
+            x = upsample(x)
+            x = torch.cat([x, skips.pop()], dim=1)
             x = layer(x, time_embedding, text_embedding)
 
         # Final convolution to map the features to the desired output channels

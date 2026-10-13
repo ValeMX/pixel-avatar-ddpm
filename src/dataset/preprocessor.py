@@ -349,7 +349,7 @@ class Preprocessor:
             bar_format="{l_bar}{bar:30}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
         ):
             # 3.1. Load the image.
-            image = self.get_image(image_name)
+            image = self.get_image(image_name).convert("RGB")
 
             # 3.2. Crop the image using the specified crop size.
             cropped_image = self.crop_image(image, crop_size)
