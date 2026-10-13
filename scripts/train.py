@@ -25,98 +25,7 @@ from src.models import Diffusion
 from src.models.text_encoder import Tokenizer
 
 from src.utils.helpers import *
-
-
-def build_ordinary_split(
-    data_path: str,
-    split_path: str,
-    generator: torch.Generator,
-    data_ratio: float = 1.0,
-    train_ratio: float = 0.8,
-    validation_ratio: float = 0.1,
-    image_extension: str = "png",
-    caption_extension: str = "txt",
-):
-    """Build an ordinary split of the dataset.
-
-    Args:
-        data_path (str): Path to the dataset directory containing images and captions.
-        split_path (str): Path to the directory where the split data will be saved.
-        generator (torch.Generator): A PyTorch random number generator for reproducibility.
-        data_ratio (float, optional): Ratio of the dataset to use. Default is 1.0 (use the entire dataset).
-        train_ratio (float, optional): Ratio of the training set. Default is 0.8 (80% for training).
-        validation_ratio (float, optional): Ratio of the validation set. Default is 0.1 (10% for validation).
-        image_extension (str, optional): Extension of image files. Default is "png".
-        caption_extension (str, optional): Extension of caption files. Default is "txt".
-    """
-    # Get all image and caption files in the dataset directory
-    image_files = list(Path(data_path).glob(f"*.{image_extension}"))
-    caption_files = list(Path(data_path).glob(f"*.{caption_extension}"))
-
-    # Shuffle the files to ensure randomness with a fixed seed for reproducibility
-    image_files.sort()
-    caption_files.sort()
-
-    permutation = torch.randperm(len(image_files), generator=generator).tolist()
-
-    image_files = [image_files[i] for i in permutation]
-    caption_files = [caption_files[i] for i in permutation]
-
-    # Split the data according to the specified ratios
-    split_image_files = image_files[: int(len(image_files) * data_ratio)]
-    split_caption_files = caption_files[: int(len(caption_files) * data_ratio)]
-
-    # Further split the data into train, validation, and test sets
-    train_size = int(len(split_image_files) * train_ratio)
-    val_size = int(len(split_image_files) * validation_ratio)
-
-    train_image_files = split_image_files[:train_size]
-    val_image_files = split_image_files[train_size : train_size + val_size]
-    test_image_files = split_image_files[train_size + val_size :]
-
-    train_caption_files = split_caption_files[:train_size]
-    val_caption_files = split_caption_files[train_size : train_size + val_size]
-    test_caption_files = split_caption_files[train_size + val_size :]
-
-    # Clean the split directory before saving new splits
-    clean_directory(split_path)
-
-    # Copy the split image and caption files to the split directory
-    split_dir = Path(split_path)
-    split_dir.mkdir(parents=True, exist_ok=True)
-
-    for img in train_image_files:
-        (split_dir / "train").mkdir(parents=True, exist_ok=True)
-        (split_dir / "train" / img.name).write_bytes(img.read_bytes())
-
-    for img in val_image_files:
-        (split_dir / "validation").mkdir(parents=True, exist_ok=True)
-        (split_dir / "validation" / img.name).write_bytes(img.read_bytes())
-
-    for img in test_image_files:
-        (split_dir / "test").mkdir(parents=True, exist_ok=True)
-        (split_dir / "test" / img.name).write_bytes(img.read_bytes())
-
-    for cap in train_caption_files:
-        (split_dir / "train").mkdir(parents=True, exist_ok=True)
-        (split_dir / "train" / cap.name).write_text(cap.read_text())
-
-    for cap in val_caption_files:
-        (split_dir / "validation").mkdir(parents=True, exist_ok=True)
-        (split_dir / "validation" / cap.name).write_text(cap.read_text())
-
-    for cap in test_caption_files:
-        (split_dir / "test").mkdir(parents=True, exist_ok=True)
-        (split_dir / "test" / cap.name).write_text(cap.read_text())
-
-    print(
-        f"Data split completed. ",
-        f"Train: {len(train_image_files)}, ",
-        f"Validation: {len(val_image_files)}, ",
-        f"Test: {len(test_image_files)}\n",
-        f"Split data saved in: {split_dir.resolve()}",
-        sep="",
-    )
+from src.utils.splits import *
 
 
 def get_captions_from_split(split_path: str, split_type: str = "train") -> list[str]:
@@ -422,7 +331,14 @@ def evaluate(
     alphas_cumprod = scheduler.alphas_cumprod.to(device)
     total, count = 0.0, 0
 
-    for images, captions in dataloader:
+    val_bar = tqdm.tqdm(
+        dataloader,
+        desc="Validation Progress",
+        unit="batch",
+        leave=False,
+        dynamic_ncols=True,
+    )
+    for images, captions in val_bar:
         images = images.to(device)
 
         tokens = torch.tensor(
@@ -456,6 +372,12 @@ if __name__ == "__main__":
         print("Error: Configuration file not found or invalid.")
         sys.exit(1)
 
+    mappings = load_mappings()
+
+    if mappings is None:
+        print("Error: Mapping file not found or invalid.")
+        sys.exit(1)
+
     seed = config["training"]["seed"]
 
     # 1. Choose an available split of the dataset or create a new one
@@ -478,13 +400,21 @@ if __name__ == "__main__":
         split_path = split_path + f"/{split_id}"
 
         # Create a new split from the dataset
-        print(
-            f"Building ordinary split of the dataset at {data_path} with seed {seed}..."
-        )
-        build_ordinary_split(
+        # print(
+        #     f"Building ordinary split of the dataset at {data_path} with seed {seed}..."
+        # )
+        # build_ordinary_split(
+        #     data_path=data_path,
+        #     split_path=split_path,
+        #     generator=get_generator(seed),
+        # )
+        print(f"Building compositional split of the dataset at {data_path} with seed {seed}...")
+        build_compositional_split(
             data_path=data_path,
             split_path=split_path,
-            generator=get_generator(seed),
+            mappings=mappings,
+            combos=config["dataset"]["held_out_combinations"],
+            seed=seed,
         )
     else:
         if chosen_split in available_splits:
@@ -588,6 +518,7 @@ if __name__ == "__main__":
     learning_rate = config["training"]["learning_rate"]
     dropout = config["training"]["dropout"]
     validation_interval = config["training"]["validation_interval"]
+    patience = config["training"]["patience"]
 
     transform = transforms.Compose(
         [
@@ -614,12 +545,14 @@ if __name__ == "__main__":
         dataset_train,
         batch_size=batch_size,
         generator=get_generator(seed),
+        shuffle=True,
     )
 
     dataloader_val = DataLoader(
         dataset_val,
         batch_size=batch_size,
         generator=get_generator(seed),
+        shuffle=False,
     )
 
     optimizer = AdamW(diffusion.parameters(), lr=learning_rate)
@@ -684,6 +617,7 @@ if __name__ == "__main__":
         criterion=criterion,
         start_loss=loss_val,
         validation_interval=validation_interval,
+        patience=patience,
         dropout=dropout,
         checkpoint_path=checkpoint_path,
     )

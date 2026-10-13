@@ -26,12 +26,13 @@ class ResNetLayer(nn.Sequential):
         """
         time_embedding = args[0]
         text_embedding = args[1]
+        text_mask = args[2] if len(args) > 2 else None
         x = input
         for block in self:
             if isinstance(block, ResidualBlock):
                 x = block(x, time_embedding)
             elif isinstance(block, AttentionBlock):
-                x = block(x, text_embedding)
+                x = block(x, text_embedding, text_mask)
             else:
                 x = block(x)
         return x

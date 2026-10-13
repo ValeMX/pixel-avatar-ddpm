@@ -237,7 +237,7 @@ hair_color: # Color of the hair, facial hair, and eyebrows
 
 # Proportions
 eye_eyebrow_distance: # Distance between the eye and eyebrows
-  0: "medium distance"
+  0: "medium"
   1: "far"
   2: "close"
 

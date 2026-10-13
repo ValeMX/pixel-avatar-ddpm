@@ -1,4 +1,4 @@
-# configs/config.yaml
+# Configuration file for the pixel-avatar-ddpm project
 
 project_name: "pixel-avatar-ddpm"
 seed: 42 # For reproducibility
@@ -17,10 +17,12 @@ dataset:
   strategy: "bilinear" # Resampling strategy for resizing images
 
   held_out_combinations:
-    - attribute_1: "hair_color"
-      value_1: "blue"
-      attribute_2: "eye_shape"
-      value_2: "round"
+    - {
+        attribute_1: hair_color,
+        value_1: red,
+        attribute_2: eye_color,
+        value_2: blue,
+      }
 
 model:
   # ResNet Parameters
@@ -34,8 +36,8 @@ model:
   time_encoder_mult: 4 # Hidden size for the time encoder
 
   # Text Encoder Parameters
-  sequence_length: 64 # Maximum sequence length for text input
-  text_encoder_layers: 3 # Number of layers in the text encoder
+  sequence_length: 70 # Maximum sequence length for text input
+  text_encoder_layers: 4 # Number of layers in the text encoder
   text_hidden_size: 128 # Hidden size for the text encoder
 
 scheduler:
@@ -48,9 +50,15 @@ scheduler:
 
 training:
   seed: 42
-  epochs: 10000
-  batch_size: 4
+  epochs: 50
+  batch_size: 16
   learning_rate: 0.0003
-  dropout: 0 # Dropout rate for Classifier-Free Guidance (CFG)
-  validation_interval: 100 # Interval (in epochs) for validation during training
+  dropout: 0.1 # Dropout rate for model regularization and Classifier-Free Guidance (CFG)
+  validation_interval: 1 # Interval (in epochs) for validation during training
+  patience: 15 # Number of epochs to wait for improvement before early stopping
   checkpoint_dir: "checkpoints/"
+
+inference:
+  timesteps: 200 # Number of steps for the diffusion process during inference
+  guidance_scale: 3.0 # Guidance scale for Classifier-Free Guidance (CFG)
+  samples: 16 # Number of samples to generate during inference

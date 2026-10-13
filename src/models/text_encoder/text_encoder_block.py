@@ -30,7 +30,6 @@ class TextEncoderBlock(nn.Module):
             embed_dim=hidden_dimension,
             num_heads=num_heads,
             batch_first=True,
-            dropout=0.1,
         )
 
         self.dropout_attention = nn.Dropout(dropout)
@@ -48,11 +47,12 @@ class TextEncoderBlock(nn.Module):
         self.layer_norm1 = nn.LayerNorm(hidden_dimension)
         self.layer_norm2 = nn.LayerNorm(hidden_dimension)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, padding_mask: torch.Tensor | None = None) -> torch.Tensor:
         """Forward pass of the text encoder block.
 
         Args:
-            x: A tensor of shape (batch_size, sequence_length, hidden_dimension) representing the input text.
+            x (torch.Tensor): A tensor of shape (batch_size, sequence_length, hidden_dimension) representing the input text.
+            padding_mask (torch.Tensor, optional): A tensor of shape (batch_size, sequence_length) representing the padding mask.
 
         Returns:
             A tensor of shape (batch_size, sequence_length, hidden_dimension) representing the encoded text.
@@ -60,7 +60,7 @@ class TextEncoderBlock(nn.Module):
         # 1. Compute multi-head self-attention of the input
         # Shape before and after this operation:
         # (batch_size, sequence_length, hidden_dimension)
-        attention_output, _ = self.self_attention(x, x, x)
+        attention_output, _ = self.self_attention(x, x, x, need_weights=False)
         # (batch_size, sequence_length, hidden_dimension)
 
         # 2. Apply dropout to the attention output

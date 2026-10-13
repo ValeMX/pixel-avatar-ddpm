@@ -44,11 +44,12 @@ class TextEncoder(nn.Module):
             ]
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor, padding_mask: torch.Tensor | None = None) -> torch.Tensor:
         """Forward pass of the text encoder.
 
         Args:
-            x: A tensor of shape (batch_size, sequence_length) representing the input text.
+            x (torch.Tensor): A tensor of shape (batch_size, sequence_length) representing the input text.
+            padding_mask (torch.Tensor, optional): A tensor of shape (batch_size, sequence_length) representing the padding mask.
 
         Returns:
             A tensor of shape (batch_size, sequence_length, hidden_dimension) representing the encoded text.
@@ -69,7 +70,7 @@ class TextEncoder(nn.Module):
         # Shape before and after this operation:
         # (batch_size, sequence_length, hidden_dimension)
         for block in self.encoder_blocks:
-            x = block(x)
+            x = block(x, padding_mask)
         # (batch_size, sequence_length, hidden_dimension)
 
         return x

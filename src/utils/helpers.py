@@ -43,22 +43,6 @@ def get_generator(
     """
     return torch.Generator(device=device).manual_seed(seed)
 
-
-def clean_directory(directory_path: str) -> None:
-    """Clean the specified directory by removing all files and subdirectories."""
-    directory = Path(directory_path)
-    if directory.exists():
-        for file in directory.iterdir():
-            if file.is_file():
-                file.unlink()
-            elif file.is_dir():
-                for subfile in file.iterdir():
-                    subfile.unlink()
-                file.rmdir()
-        directory.rmdir()
-    directory.mkdir(parents=True, exist_ok=True)
-
-
 def get_splits(
     split_path: str = "data/splits",
     train_path: str = "/train",

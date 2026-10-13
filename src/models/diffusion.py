@@ -7,6 +7,8 @@ from .text_encoder import TextEncoder
 
 
 class Diffusion(nn.Module):
+    """Diffusion model that combines a ResNet for image processing and a TextEncoder for text processing."""
+
     def __init__(
         self,
         input_channels: int,
@@ -19,8 +21,26 @@ class Diffusion(nn.Module):
         vocabulary_size: int,
         text_encoder_layers: int,
         dropout: float = 0.1,
+        padding_id: int = 0,
     ):
+        """Initialize the Diffusion model.
+
+        Args:
+            input_channels: Number of channels in the input images.
+            output_channels: Number of channels in the output images.
+            base_channels: Number of channels in the base feature maps.
+            spatial_resolutions: Number of spatial resolution levels.
+            time_embedding_dimension: Dimension of the time embedding.
+            text_embedding_dimension: Dimension of the text embedding.
+            heads: Number of attention heads.
+            vocabulary_size: Size of the vocabulary for text encoding.
+            text_encoder_layers: Number of layers in the text encoder.
+            dropout: Dropout rate. Default is 0.1.
+            padding_id: Padding token ID for text encoding. Default is 0.
+        """
         super(Diffusion, self).__init__()
+
+        self.padding_id = padding_id
 
         self.resnet = ResNet(
             input_channels=input_channels,
@@ -57,5 +77,6 @@ class Diffusion(nn.Module):
         Returns:
             Output tensor of shape (batch_size, output_channels, height, width).
         """
-        text_embedding = self.text_encoder(text)
-        return self.resnet(x, t, text_embedding)
+        text_mask = text == self.padding_id
+        text_embedding = self.text_encoder(text, text_mask)
+        return self.resnet(x, t, text_embedding, text_mask)

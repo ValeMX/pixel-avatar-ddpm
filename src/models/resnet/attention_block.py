@@ -46,17 +46,15 @@ class AttentionBlock(nn.Module):
             embed_dim=channels,
             num_heads=num_heads,
             batch_first=True,
-            dropout=0.1,
         )
-
-        self.text_projection = nn.Linear(text_embedding_dimension, channels)
 
         self.layernorm2 = nn.LayerNorm(channels)
         self.attention2 = nn.MultiheadAttention(
             embed_dim=channels,
             num_heads=num_heads,
             batch_first=True,
-            dropout=0.1,
+            kdim=text_embedding_dimension,
+            vdim=text_embedding_dimension,
         )
 
         self.layernorm3 = nn.LayerNorm(channels)
@@ -70,8 +68,22 @@ class AttentionBlock(nn.Module):
             channels, channels, kernel_size=1, padding=0
         )
 
-    def forward(self, x: torch.Tensor, text_embedding: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        text_embedding: torch.Tensor,
+        text_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Forward pass of the attention block.
 
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, channels, height, width).
+            text_embedding (torch.Tensor): Text embedding tensor of shape (batch_size, sequence_length, text_embedding_dimension).
+            text_mask (torch.Tensor, optional): Optional mask tensor for the text embedding of shape (batch_size, sequence_length).
+
+        Returns:
+            Output tensor of shape (batch_size, channels, height, width).
+        """
         # Preserve the input tensor for the final residual connection.
         # Shape: (batch_size, channels, height, width)
         residue_final = x
@@ -101,7 +113,7 @@ class AttentionBlock(nn.Module):
         # Shape before and after this operation:
         # (batch_size, sequence_length, channels)
         x = self.layernorm1(x)
-        x, _ = self.attention1(x, x, x)
+        x, _ = self.attention1(x, x, x, need_weights=False)
         # (batch_size, sequence_length, channels)
 
         # 5. Add the residual connection from the query tensor to the self-attention output.
@@ -116,57 +128,57 @@ class AttentionBlock(nn.Module):
         residue_attention = x
         # (batch_size, sequence_length, channels)
 
-        # 7. Project the text embedding to match the channel dimension of the query tensor.
-        # Shape before and after this operation:
-        # (batch_size, sequence_length, text_embedding_dimension)
-        text_embedding = self.text_projection(text_embedding)
-        # (batch_size, sequence_length, channels)
-
-        # 8. Normalize and compute the cross-attention of the self-attention output with the text embedding.
+        # 7. Normalize and compute the cross-attention of the self-attention output with the text embedding.
         # Shape before and after this operation:
         # (batch_size, sequence_length, channels)
         x = self.layernorm2(x)
-        x, _ = self.attention2(x, text_embedding, text_embedding)
+        x, _ = self.attention2(
+            x,
+            text_embedding,
+            text_embedding,
+            key_padding_mask=text_mask,
+            need_weights=False,
+        )
         # (batch_size, sequence_length, channels)
 
-        # 9. Add the residual connection from the self-attention output to the cross-attention output.
+        # 8. Add the residual connection from the self-attention output to the cross-attention output.
         # Shape before and after this operation:
         # (batch_size, sequence_length, channels)
         x = x + residue_attention
         # (batch_size, sequence_length, channels)
 
-        # 10. Save the cross-attention output for the residual connection after the feed-forward neural network.
+        # 9. Save the cross-attention output for the residual connection after the feed-forward neural network.
         # Shape before and after this operation:
         # (batch_size, sequence_length, channels)
         residue_attention = x
         # (batch_size, sequence_length, channels)
 
-        # 11. Normalize and apply the feed-forward neural network to the cross-attention output.
+        # 10. Normalize and apply the feed-forward neural network to the cross-attention output.
         # Shape before and after this operation:
         # (batch_size, sequence_length, channels)
         x = self.layernorm3(x)
         x = self.feedforward(x)
         # (batch_size, sequence_length, channels)
 
-        # 12. Add the residual connection from the cross-attention output to the feed-forward neural network output.
+        # 11. Add the residual connection from the cross-attention output to the feed-forward neural network output.
         # Shape before and after this operation:
         # (batch_size, sequence_length, channels)
         x = x + residue_attention
         # (batch_size, sequence_length, channels)
 
-        # 13. Reshape the output tensor back to the original shape of the input tensor.
+        # 12. Reshape the output tensor back to the original shape of the input tensor.
         # Shape before and after this operation:
         # (batch_size, sequence_length, channels)
         x = x.permute(0, 2, 1).view(n, c, h, w)
         # (batch_size, channels, height, width)
 
-        # 14. Apply the final convolution to the output tensor.
+        # 13. Apply the final convolution to the output tensor.
         # Shape before and after this operation:
         # (batch_size, channels, height, width)
         x = self.convolution_output(x)
         # (batch_size, channels, height, width)
 
-        # 15. Add the final residual connection from the input tensor to the output tensor.
+        # 14. Add the final residual connection from the input tensor to the output tensor.
         # Shape before and after this operation:
         # (batch_size, channels, height, width)
         x = x + residue_final

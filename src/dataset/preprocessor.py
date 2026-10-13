@@ -1,3 +1,4 @@
+import csv
 import matplotlib.pyplot as plt
 import numpy as np
 import random
@@ -79,8 +80,8 @@ class Preprocessor:
         parts = []
 
         # 1. Skin and Face
-        face_shape = self._get_mapped_value("face_shape", attributes)
-        face_color = self._get_mapped_value("face_color", attributes)
+        face_shape = self.get_mapped_value("face_shape", attributes)
+        face_color = self.get_mapped_value("face_color", attributes)
         if face_shape and face_color:
             parts.append(f"a {face_shape} face and {face_color} skin")
         elif face_shape:
@@ -89,13 +90,13 @@ class Preprocessor:
             parts.append(f"{face_color} skin")
 
         # 2. Chin
-        chin_length = self._get_mapped_value("chin_length", attributes)
+        chin_length = self.get_mapped_value("chin_length", attributes)
         if chin_length:
             parts.append(f"a {chin_length} chin")
 
         # 3. Hair
-        hair = self._get_mapped_value("hair", attributes)
-        hair_color = self._get_mapped_value("hair_color", attributes)
+        hair = self.get_mapped_value("hair", attributes)
+        hair_color = self.get_mapped_value("hair_color", attributes)
 
         if hair and hair_color:
             parts.append(f"{hair_color} {hair} hair")
@@ -103,11 +104,11 @@ class Preprocessor:
             parts.append(f"{hair} hair")
 
         # 4. Eyebrows (shape, weight, thickness, width, color)
-        eyebrow_shape = self._get_mapped_value("eyebrow_shape", attributes)
-        eyebrow_weight = self._get_mapped_value("eyebrow_weight", attributes)
-        eyebrow_thickness = self._get_mapped_value("eyebrow_thickness", attributes)
-        eyebrow_width = self._get_mapped_value("eyebrow_width", attributes)
-        hair_color = self._get_mapped_value("hair_color", attributes)
+        eyebrow_shape = self.get_mapped_value("eyebrow_shape", attributes)
+        eyebrow_weight = self.get_mapped_value("eyebrow_weight", attributes)
+        eyebrow_thickness = self.get_mapped_value("eyebrow_thickness", attributes)
+        eyebrow_width = self.get_mapped_value("eyebrow_width", attributes)
+        hair_color = self.get_mapped_value("hair_color", attributes)
 
         brow_desc = []
         if eyebrow_weight:
@@ -125,7 +126,7 @@ class Preprocessor:
             parts.append(f"{' '.join(brow_desc)} eyebrows")
 
         # 5. Eye - Eyebrow Distance
-        eye_eyebrow_distance = self._get_mapped_value(
+        eye_eyebrow_distance = self.get_mapped_value(
             "eye_eyebrow_distance",
             attributes,
         )
@@ -133,11 +134,11 @@ class Preprocessor:
             parts.append(f"{eye_eyebrow_distance} distance between eyes and eyebrows")
 
         # 6. Eyes (color, angle, slant, lashes, lid)
-        eye_color = self._get_mapped_value("eye_color", attributes)
-        eye_angle = self._get_mapped_value("eye_angle", attributes)
-        eye_slant = self._get_mapped_value("eye_slant", attributes)
-        eye_lashes = self._get_mapped_value("eye_lashes", attributes)
-        eye_lid = self._get_mapped_value("eye_lid", attributes)
+        eye_color = self.get_mapped_value("eye_color", attributes)
+        eye_angle = self.get_mapped_value("eye_angle", attributes)
+        eye_slant = self.get_mapped_value("eye_slant", attributes)
+        eye_lashes = self.get_mapped_value("eye_lashes", attributes)
+        eye_lid = self.get_mapped_value("eye_lid", attributes)
 
         eye_desc = []
         if eye_color:
@@ -159,7 +160,7 @@ class Preprocessor:
             parts.append("visible eyelashes")
 
         # 7. Facial Hair
-        facial_hair = self._get_mapped_value("facial_hair", attributes)
+        facial_hair = self.get_mapped_value("facial_hair", attributes)
         if facial_hair and facial_hair != "no":
             if hair_color:
                 parts.append(f"a {hair_color} {facial_hair}")
@@ -167,8 +168,8 @@ class Preprocessor:
                 parts.append(f"a {facial_hair}")
 
         # 8. Glasses
-        glasses = self._get_mapped_value("glasses", attributes)
-        glasses_color = self._get_mapped_value("glasses_color", attributes)
+        glasses = self.get_mapped_value("glasses", attributes)
+        glasses_color = self.get_mapped_value("glasses_color", attributes)
         if glasses and glasses != "no":
             if glasses_color:
                 parts.append(f"{glasses_color} {glasses}")
@@ -241,7 +242,7 @@ class Preprocessor:
 
         return Image.open(full_path)
 
-    def _get_mapped_value(self, attribute_name: str, attributes: dict) -> str | None:
+    def get_mapped_value(self, attribute_name: str, attributes: dict) -> str | None:
         """Helper method to look up textual value from YAML mapping.
 
         Args:
@@ -338,7 +339,10 @@ class Preprocessor:
             output_path.rmdir()
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # 3. Process each image: crop, resize, generate caption, and save.
+        # 3. Initialize a list to store metadata for each processed image.
+        metadata_rows = []
+
+        # 4. Process each image: crop, resize, generate caption, and save.
         idx = 0
         for image_name in tqdm.tqdm(
             image_names,
@@ -348,26 +352,26 @@ class Preprocessor:
             leave=True,
             bar_format="{l_bar}{bar:30}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
         ):
-            # 3.1. Load the image.
+            # 4.1. Load the image.
             image = self.get_image(image_name).convert("RGB")
 
-            # 3.2. Crop the image using the specified crop size.
+            # 4.2. Crop the image using the specified crop size.
             cropped_image = self.crop_image(image, crop_size)
 
-            # 3.3. Resize the image using the specified strategy.
+            # 4.3. Resize the image using the specified strategy.
             resized_image = self.resize_image(cropped_image, image_size, strategy)
 
-            # 3.4. Generate the corresponding attributes file name and load attributes.
+            # 4.4. Generate the corresponding attributes file name and load attributes.
             attributes_name = image_name.replace(
                 f".{image_extension}",
                 f".{attributes_extension}",
             )
             attributes = self.get_attributes(attributes_name)
 
-            # 3.5. Generate a caption based on the loaded attributes.
+            # 4.5. Generate a caption based on the loaded attributes.
             caption = self.generate_caption(attributes)
 
-            # 3.6. Save the processed image and its caption to the output directory.
+            # 4.6. Save the processed image and its caption to the output directory.
             num_digits = len(str(len(image_names)))
             output_image_path = (
                 Path(output_dir)
@@ -376,11 +380,20 @@ class Preprocessor:
 
             resized_image.save(output_image_path)
 
+            # 4.7. Append metadata for the processed image to the metadata list.
+            metadata_rows.append({"image": output_image_path.stem, **attributes})
+
             output_caption_path = output_image_path.with_suffix(f".{caption_extension}")
             with open(output_caption_path, "w") as caption_file:
                 caption_file.write(caption)
 
             idx += 1
+
+        # 5. Save the metadata to a CSV file in the output directory.
+        with open(Path(output_dir) / "metadata.csv", "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(metadata_rows[0]))
+            writer.writeheader()
+            writer.writerows(metadata_rows)
 
         print(f"Processed {idx} images and captions. Saved to {output_dir}.")
 

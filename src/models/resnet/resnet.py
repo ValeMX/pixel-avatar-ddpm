@@ -142,7 +142,20 @@ class ResNet(nn.Module):
         x: torch.Tensor,
         timestep: torch.Tensor,
         text_embedding: torch.Tensor,
+        text_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        """Forward pass of the ResNet model.
+
+        Args:
+            x (torch.Tensor): A tensor of shape (batch_size, input_channels, height, width) representing the input images.
+            timestep (torch.Tensor): A tensor of shape (batch_size,) representing the time steps for each image in the batch.
+            text_embedding (torch.Tensor): A tensor of shape (batch_size, sequence_length, text_embedding_dimension) representing the text embeddings.
+            text_mask (torch.Tensor, optional): A tensor of shape (batch_size, sequence_length) representing the padding mask for the text embeddings.
+
+        Returns:
+            torch.Tensor: A tensor of shape (batch_size, output_channels, height, width) representing the output images.
+        """
+
         # Generate the time embedding from the time step
         time_embedding = self.time_encoder(timestep)
 
@@ -152,18 +165,18 @@ class ResNet(nn.Module):
         # Encoder: pass through the ResNet blocks and downsampling layers, storing skip connections
         skips = []
         for layer, downsample in zip(self.encoder_layers, self.downsample_layers):
-            x = layer(x, time_embedding, text_embedding)
+            x = layer(x, time_embedding, text_embedding, text_mask)
             skips.append(x)
             x = downsample(x)
-           
+
         # Middle block: process the features at the lowest spatial resolution
-        x = self.middle_block(x, time_embedding, text_embedding)
+        x = self.middle_block(x, time_embedding, text_embedding, text_mask)
 
         # Decoder: pass through the ResNet blocks and upsampling layers, using skip connections from the encoder
         for layer, upsample in zip(self.decoder_layers, self.upsample_layers):
             x = upsample(x)
             x = torch.cat([x, skips.pop()], dim=1)
-            x = layer(x, time_embedding, text_embedding)
+            x = layer(x, time_embedding, text_embedding, text_mask)
 
         # Final convolution to map the features to the desired output channels
         x = self.final_convolution(x)
