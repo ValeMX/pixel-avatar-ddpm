@@ -3,7 +3,7 @@ import torch.nn as nn
 import yaml
 
 from pathlib import Path
-from torch.optim import Adam
+from torch.optim import AdamW
 from typing import Any
 
 
@@ -42,6 +42,7 @@ def get_generator(
         device (torch.device | None): The device on which to create the generator.
     """
     return torch.Generator(device=device).manual_seed(seed)
+
 
 def get_splits(
     split_path: str = "data/splits",
@@ -142,7 +143,7 @@ def load_hyperparameters(hyperparameters_path: str) -> dict[str, Any] | None:
 def save_checkpoint(
     checkpoint_path: str,
     model: nn.Module,
-    optimizer: Adam,
+    optimizer: AdamW,
     lr_scheduler: torch.optim.lr_scheduler.LambdaLR,
     epoch: int,
     loss_val: float,
@@ -152,7 +153,7 @@ def save_checkpoint(
     Args:
         checkpoint_path (str): Path to the checkpoint file.
         model (nn.Module): The model to save.
-        optimizer (Adam): The optimizer to save.
+        optimizer (AdamW): The optimizer to save.
         lr_scheduler (torch.optim.lr_scheduler.LambdaLR): The learning rate scheduler to save.
         epoch (int): The current epoch number.
         loss_val (float): The validation loss at the current epoch.
@@ -180,6 +181,29 @@ def load_checkpoint(checkpoint_path: str, device: torch.device) -> dict[str, Any
     """
     checkpoint = torch.load(checkpoint_path, map_location=device)
     return checkpoint
+
+
+def scale(
+    tensor: torch.Tensor, source_range: tuple, target_range: tuple, clamp: bool = False
+) -> torch.Tensor:
+    """Rescale a tensor from a source range to a target range.
+
+    Args:
+        tensor: The input tensor to be rescaled.
+        source_range: A tuple (min, max) representing the source range of the tensor values.
+        target_range: A tuple (min, max) representing the target range for the rescaled values.
+        clamp: If True, clamp the output values to the target range. Default is False.
+
+    Returns:
+        torch.Tensor: The rescaled tensor.
+    """
+    tensor = (tensor - source_range[0]) / (source_range[1] - source_range[0])
+    tensor = tensor * (target_range[1] - target_range[0]) + target_range[0]
+
+    if clamp:
+        tensor = tensor.clamp(target_range[0], target_range[1])
+
+    return tensor
 
 
 if __name__ == "__main__":

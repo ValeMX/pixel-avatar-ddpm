@@ -1,8 +1,6 @@
 import sys
 from pathlib import Path
 
-from PIL import Image
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
@@ -14,7 +12,8 @@ import torch.nn.functional as F
 import tqdm
 import yaml
 
-from torch.optim import Adam
+from PIL import Image
+from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -23,7 +22,6 @@ from src.dataset import Scheduler
 from src.dataset import AvatarDataset
 from src.models import Diffusion
 from src.models.text_encoder import Tokenizer
-
 from src.utils.helpers import *
 from src.utils.splits import *
 
@@ -70,15 +68,22 @@ def save_model_hyperparameters(
     vocabulary_path: str,
     hyperparameters_path: str,
     tokenizer: Tokenizer,
+    image_size: int,
     input_channels: int,
     output_channels: int,
     base_channels: int,
     spatial_resolutions: int,
-    time_embedding_mult: int,
-    text_embedding_dimension: int,
     heads: int,
+    time_embedding_multiplier: int,
+    text_embedding_dimension: int,
     text_encoder_layers: int,
     dropout: float,
+    timesteps: int,
+    beta_start: float,
+    beta_end: float,
+    beta_max: float,
+    s: float,
+    scheduler_type: str,
 ):
     """Save the model hyperparameters to a file.
 
@@ -86,28 +91,48 @@ def save_model_hyperparameters(
         hyperparameters_path (str): Path to the file where the parameters will be saved.
         vocabulary_path (str): Path to the file where the vocabulary will be saved.
         tokenizer (Tokenizer): The tokenizer used for the model.
+        image_size (int): The size of the input images.
         input_channels (int): The number of input channels.
         output_channels (int): The number of output channels.
         base_channels (int): The base number of channels.
         spatial_resolutions (int): The spatial resolutions.
         heads (int): The number of attention heads.
+        time_embedding_multiplier (int): The multiplier for the time embedding dimension.
         text_embedding_dimension (int): The dimension of the text embedding.
         text_encoder_layers (int): The number of layers in the text encoder.
+        dropout (float): The dropout rate.
+        timesteps (int): The number of timesteps for the diffusion process.
+        beta_start (float): The starting value of beta for the diffusion process.
+        beta_end (float): The ending value of beta for the diffusion process.
+        beta_max (float): The maximum value of beta for the diffusion process.
+        s (float): The s parameter for the diffusion process.
+        scheduler_type (str): The type of scheduler used for the diffusion process.
     """
     # Check if folder exists, if not create it
     save_dir = Path(hyperparameters_path).parent
     save_dir.mkdir(parents=True, exist_ok=True)
 
     hyperparameters = {
-        "resnet_in_channels": input_channels,
-        "resnet_out_channels": output_channels,
-        "resnet_base_channels": base_channels,
-        "resnet_spatial_resolutions": spatial_resolutions,
-        "resnet_attention_heads": heads,
-        "time_embedding_mult": time_embedding_mult,
-        "text_hidden_size": text_embedding_dimension,
-        "text_encoder_layers": text_encoder_layers,
-        "dropout": dropout,
+        "model": {
+            "image_size": image_size,
+            "resnet_in_channels": input_channels,
+            "resnet_out_channels": output_channels,
+            "resnet_base_channels": base_channels,
+            "resnet_spatial_resolutions": spatial_resolutions,
+            "resnet_attention_heads": heads,
+            "time_embedding_multiplier": time_embedding_multiplier,
+            "text_encoder_layers": text_encoder_layers,
+            "text_hidden_size": text_embedding_dimension,
+            "dropout": dropout,
+        },
+        "scheduler": {
+            "timesteps": timesteps,
+            "beta_start": beta_start,
+            "beta_end": beta_end,
+            "beta_max": beta_max,
+            "s": s,
+            "type": f"{scheduler_type}",
+        },
     }
 
     tokenizer.save_vocabulary(vocabulary_path)
@@ -121,7 +146,7 @@ def save_model_hyperparameters(
 def get_lr_scheduler(
     optimizer: torch.optim.Optimizer,
     total_steps: int,
-    warmup_steps: int = 200,
+    warmup_steps: int = 100,
     ratio: float = 0.05,
 ) -> torch.optim.lr_scheduler.LambdaLR:
     """Get a learning rate scheduler that implements a warmup followed by a cosine decay.
@@ -139,7 +164,7 @@ def get_lr_scheduler(
     def lr_lambda(step):
         if step < warmup_steps:
             return (step + 1) / warmup_steps
-        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        progress = (step - warmup_steps) / (total_steps - warmup_steps)
         cosine = 0.5 * (1 + math.cos(math.pi * progress))
         return ratio + (1 - ratio) * cosine
 
@@ -155,7 +180,7 @@ def train(
     scheduler: Scheduler,
     dataloader_train: DataLoader,
     dataloader_val: DataLoader,
-    optimizer: Adam,
+    optimizer: AdamW,
     lr_scheduler: LambdaLR,
     criterion: nn.Module,
     start_epoch: int = 0,
@@ -177,7 +202,7 @@ def train(
         scheduler (Scheduler): The scheduler for the diffusion process.
         dataloader_train (DataLoader): DataLoader for the training dataset.
         dataloader_val (DataLoader): DataLoader for the validation dataset.
-        optimizer (Adam): Optimizer for updating model parameters.
+        optimizer (AdamW): Optimizer for updating model parameters.
         lr_scheduler (LambdaLR): The learning rate scheduler.
         criterion (nn.Module): Loss function to compute the loss.
         start_epoch (int): The epoch to start training from. Default is 0.
@@ -242,10 +267,10 @@ def train(
             )
 
             predicted_noise = diffusion(x_noise, t, encoded_captions.to(device))
-
+            print("Predicted noise!")
             loss = criterion(predicted_noise, noise)
             loss.backward()
-
+            print("Loss computed!")
             # Gradient clipping to prevent exploding gradients
             torch.nn.utils.clip_grad_norm_(diffusion.parameters(), max_norm=1.0)
             optimizer.step()
@@ -454,7 +479,7 @@ if __name__ == "__main__":
         )
         train_captions = get_captions_from_split(split_path, "train")
         tokenizer.build_vocabulary(train_captions)
-        hyperparameters = config["model"]
+        hyperparameters = config
     else:
         if chosen_checkpoint in available_checkpoints:
             print(f"Using existing checkpoint: {chosen_checkpoint}")
@@ -463,7 +488,7 @@ if __name__ == "__main__":
             # Load the tokenizer vocabulary from the checkpoint
             tokenizer.load_vocabulary(checkpoint_path + "/tokenizer_vocabulary.csv")
 
-            # Load the model hyperparameters from the checkpoint
+            # Load the model and scheduler hyperparameters from the checkpoint
             hyperparameters = load_hyperparameters(
                 checkpoint_path + "/model_hyperparameters.yaml"
             )
@@ -479,18 +504,22 @@ if __name__ == "__main__":
     # 3. Initialize the diffusion model
     vocabulary_size = tokenizer.get_vocabulary_size()
 
-    resnet_in_channels = hyperparameters["resnet_in_channels"]
-    resnet_out_channels = hyperparameters["resnet_out_channels"]
-    resnet_base_channels = hyperparameters["resnet_base_channels"]
-    resnet_spatial_resolutions = hyperparameters["resnet_spatial_resolutions"]
-    resnet_attention_heads = hyperparameters["resnet_attention_heads"]
+    model_hyperparameters = hyperparameters["model"]
+    scheduler_hyperparameters = hyperparameters["scheduler"]
 
-    time_embedding_mult = hyperparameters["time_embedding_mult"]
-    time_embedding_dimension = resnet_base_channels * time_embedding_mult
+    resnet_in_channels = model_hyperparameters["resnet_in_channels"]
+    resnet_out_channels = model_hyperparameters["resnet_out_channels"]
+    resnet_base_channels = model_hyperparameters["resnet_base_channels"]
+    resnet_spatial_resolutions = model_hyperparameters["resnet_spatial_resolutions"]
+    resnet_attention_heads = model_hyperparameters["resnet_attention_heads"]
 
-    text_hidden_size = hyperparameters["text_hidden_size"]
-    text_encoder_layers = hyperparameters["text_encoder_layers"]
-    dropout = hyperparameters["dropout"]
+    time_embedding_multiplier = model_hyperparameters["time_embedding_multiplier"]
+    time_embedding_dimension = resnet_base_channels * time_embedding_multiplier
+    print(f"Time embedding dimension: {time_embedding_dimension}")
+
+    text_hidden_size = model_hyperparameters["text_hidden_size"]
+    text_encoder_layers = model_hyperparameters["text_encoder_layers"]
+    dropout = model_hyperparameters["dropout"]
 
     diffusion = Diffusion(
         input_channels=resnet_in_channels,
@@ -506,12 +535,12 @@ if __name__ == "__main__":
     ).to(device)
 
     # 4. Initialize the scheduler for the diffusion process
-    training_steps = config["scheduler"]["timesteps"]
-    beta_start = config["scheduler"]["beta_start"]
-    beta_end = config["scheduler"]["beta_end"]
-    beta_max = config["scheduler"]["beta_max"]
-    s = config["scheduler"]["s"]
-    type = config["scheduler"]["type"]
+    training_steps = scheduler_hyperparameters["timesteps"]
+    beta_start = scheduler_hyperparameters["beta_start"]
+    beta_end = scheduler_hyperparameters["beta_end"]
+    beta_max = scheduler_hyperparameters["beta_max"]
+    s = scheduler_hyperparameters["s"]
+    type = scheduler_hyperparameters["type"]
 
     scheduler = Scheduler(
         generator=get_generator(seed, device),
@@ -527,6 +556,7 @@ if __name__ == "__main__":
     epochs = config["training"]["epochs"]
     batch_size = config["training"]["batch_size"]
     learning_rate = config["training"]["learning_rate"]
+    weight_decay = config["training"]["weight_decay"]
     dropout = config["training"]["dropout"]
     validation_interval = config["training"]["validation_interval"]
     patience = config["training"]["patience"]
@@ -566,26 +596,35 @@ if __name__ == "__main__":
         shuffle=False,
     )
 
-    optimizer = Adam(diffusion.parameters(), lr=learning_rate)
+    optimizer = AdamW(
+        diffusion.parameters(), lr=learning_rate, weight_decay=weight_decay
+    )
     steps = epochs * len(dataloader_train)
-    lr_scheduler = get_lr_scheduler(optimizer, total_steps=steps, warmup_steps=10)
+    lr_scheduler = get_lr_scheduler(optimizer, steps)
     criterion = nn.MSELoss()
-    #TODO EMA
+    # TODO EMA
 
     # 6. Save the model hyperparameters and tokenizer vocabulary for reproducibility
     save_model_hyperparameters(
         vocabulary_path=checkpoint_path + f"/tokenizer_vocabulary.csv",
         hyperparameters_path=checkpoint_path + f"/model_hyperparameters.yaml",
         tokenizer=tokenizer,
+        image_size=image_size,
         input_channels=resnet_in_channels,
         output_channels=resnet_out_channels,
         base_channels=resnet_base_channels,
         spatial_resolutions=resnet_spatial_resolutions,
-        time_embedding_mult=time_embedding_mult,
+        time_embedding_multiplier=time_embedding_multiplier,
         text_embedding_dimension=text_hidden_size,
         heads=resnet_attention_heads,
         text_encoder_layers=text_encoder_layers,
         dropout=dropout,
+        timesteps=training_steps,
+        beta_start=beta_start,
+        beta_end=beta_end,
+        beta_max=beta_max,
+        s=s,
+        scheduler_type=type,
     )
 
     # 7. Choose an available checkpoint to resume training or start from scratch

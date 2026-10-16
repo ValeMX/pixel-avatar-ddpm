@@ -70,16 +70,16 @@ class ResidualBlock(nn.Module):
 
         # If the input and output channels are different, we need to create a
         # convolutional layer to match the dimensions for the residual connection.
-        if input_channels != output_channels:
-            self.convolution_residual = nn.Conv2d(
-                input_channels,
-                output_channels,
-                kernel_size=1,
-                padding=0,
-                bias=bias,
-            )
-        else:
-            self.convolution_residual = nn.Identity()
+        # if input_channels != output_channels:
+        self.convolution_residual = nn.Conv2d(
+            input_channels,
+            output_channels,
+            kernel_size=1,
+            padding=0,
+            bias=bias,
+        )
+        # else:
+        #     self.convolution_residual = nn.Identity()
 
     def forward(self, x: torch.Tensor, time_embedding: torch.Tensor) -> torch.Tensor:
         """Forward pass of the ResNet block.
@@ -115,14 +115,14 @@ class ResidualBlock(nn.Module):
         # 3. Project the time embedding on the feature map dimension.
         # Shape before and after this operation:
         # (batch_size, time_embedding_dimension)
-        time_embedding = self.time_encoder(time_embedding)
-        time_embedding = time_embedding.unsqueeze(-1).unsqueeze(-1)
+        t_emb = self.time_encoder(time_embedding)
+        t_emb = t_emb.unsqueeze(-1).unsqueeze(-1)
         # (batch_size, output_channels, height, width)
 
         # 4. Add the time embedding to the feature map.
         # Shape before and after this operation:
         # (batch_size, output_channels, height, width)
-        x = x + time_embedding
+        x = x + t_emb
         # (batch_size, output_channels, height, width)
 
         # 5. Normalize and activate the feature map.

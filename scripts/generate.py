@@ -119,29 +119,6 @@ def generate(
     return images[0]
 
 
-def scale(
-    tensor: torch.Tensor, source_range: tuple, target_range: tuple, clamp: bool = False
-) -> torch.Tensor:
-    """Rescale a tensor from a source range to a target range.
-
-    Args:
-        tensor: The input tensor to be rescaled.
-        source_range: A tuple (min, max) representing the source range of the tensor values.
-        target_range: A tuple (min, max) representing the target range for the rescaled values.
-        clamp: If True, clamp the output values to the target range. Default is False.
-
-    Returns:
-        torch.Tensor: The rescaled tensor.
-    """
-    tensor = (tensor - source_range[0]) / (source_range[1] - source_range[0])
-    tensor = tensor * (target_range[1] - target_range[0]) + target_range[0]
-
-    if clamp:
-        tensor = tensor.clamp(target_range[0], target_range[1])
-
-    return tensor
-
-
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")

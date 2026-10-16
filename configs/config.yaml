@@ -13,7 +13,7 @@ dataset:
   attributes_extension: "csv" # File extension of the attributes files in the dataset
   caption_extension: "txt" # File extension of the caption files in the dataset
   crop_size: 64 # Crop size for removing white borders from images
-  image_size: 64 # Image size for training (32x32) or (64x64)
+  image_size: 32 # Image size for training (32x32) or (64x64)
   strategy: "bilinear" # Resampling strategy for resizing images
 
   held_out_combinations:
@@ -26,11 +26,14 @@ dataset:
 
 model:
   # ResNet Parameters
+  image_size: 32 # Size of the input images
   resnet_in_channels: 3 # Number of input channels (RGB images)
   resnet_out_channels: 3 # Number of output channels (RGB images)
   resnet_base_channels: 128 # Base number of channels in the ResNet
   resnet_spatial_resolutions: 3 # Number of spatial resolution levels in the ResNet
   resnet_attention_heads: 4 # Number of attention heads in the ResNet
+
+  time_embedding_multiplier: 4 # Multiplier for the time embedding dimension
 
   # Text Encoder Parameters
   sequence_length: 70 # Maximum sequence length for text input
@@ -49,8 +52,9 @@ scheduler:
 training:
   seed: 42
   epochs: 50
-  batch_size: 16
+  batch_size: 32
   learning_rate: 0.0002 # Learning rate for the optimizer
+  weight_decay: 0.01 # Weight decay for the optimizer
   dropout: 0.1 # Dropout rate for model regularization and Classifier-Free Guidance (CFG)
   validation_interval: 1 # Interval (in epochs) for validation during training
   patience: 10 # Number of epochs to wait for improvement before early stopping
@@ -58,5 +62,7 @@ training:
 
 inference:
   timesteps: 250 # Number of steps for the diffusion process during inference
-  guidance_scale: 3.0 # Guidance scale for Classifier-Free Guidance (CFG)
-  samples: 4 # Number of samples to generate during inference
+  guidance_scale: 3.5 # Guidance scale for Classifier-Free Guidance (CFG)
+  batch_size: 16 # Batch size for inference
+  metric_samples: 100 # Number of samples to generate during inference for evaluation metrics
+  diversity_samples: 4 # Number of samples to generate for diversity evaluation

@@ -1,5 +1,3 @@
-import math
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -193,6 +191,7 @@ if __name__ == "__main__":
         time_embedding_dimension=256,
         text_embedding_dimension=64,
         heads=4,
+        dropout=0.1,
     )
 
     # Create a random input tensor with shape (batch_size, channels, height, width)

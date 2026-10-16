@@ -78,5 +78,37 @@ class Diffusion(nn.Module):
             Output tensor of shape (batch_size, output_channels, height, width).
         """
         text_mask = text == self.padding_id
+        print(f"Text mask shape: {text_mask.shape}, Text mask sum: {text_mask.sum().item()}")
         text_embedding = self.text_encoder(text, text_mask)
+        print(f"Text embedding shape: {text_embedding.shape}")
         return self.resnet(x, t, text_embedding, text_mask)
+
+
+if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Example usage of the Diffusion model
+    diffusion_model = Diffusion(
+        input_channels=3,
+        output_channels=3,
+        base_channels=32,
+        spatial_resolutions=2,
+        time_embedding_dimension=16,
+        text_embedding_dimension=8,
+        heads=4,
+        vocabulary_size=10000,
+        text_encoder_layers=2,
+    ).to(device)
+
+    # Create dummy inputs
+    batch_size = 32
+    height, width = 32, 32
+    sequence_length = 70
+
+    x = torch.randn(batch_size, 3, height, width).to(device)  # Input images
+    t = torch.randint(0, 1000, (batch_size,)).to(device)  # Time steps
+    text = torch.randint(0, 10000, (batch_size, sequence_length)).to(device)  # Text input
+
+    # Forward pass
+    output = diffusion_model(x, t, text)
+    print("Output shape:", output.shape)
