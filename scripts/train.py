@@ -14,7 +14,7 @@ import torch.nn.functional as F
 import tqdm
 import yaml
 
-from torch.optim import Adam, AdamW
+from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -74,9 +74,11 @@ def save_model_hyperparameters(
     output_channels: int,
     base_channels: int,
     spatial_resolutions: int,
+    time_embedding_mult: int,
     text_embedding_dimension: int,
     heads: int,
     text_encoder_layers: int,
+    dropout: float,
 ):
     """Save the model hyperparameters to a file.
 
@@ -102,8 +104,10 @@ def save_model_hyperparameters(
         "resnet_base_channels": base_channels,
         "resnet_spatial_resolutions": spatial_resolutions,
         "resnet_attention_heads": heads,
+        "time_embedding_mult": time_embedding_mult,
         "text_hidden_size": text_embedding_dimension,
         "text_encoder_layers": text_encoder_layers,
+        "dropout": dropout,
     }
 
     tokenizer.save_vocabulary(vocabulary_path)
@@ -151,7 +155,7 @@ def train(
     scheduler: Scheduler,
     dataloader_train: DataLoader,
     dataloader_val: DataLoader,
-    optimizer: AdamW,
+    optimizer: Adam,
     lr_scheduler: LambdaLR,
     criterion: nn.Module,
     start_epoch: int = 0,
@@ -173,7 +177,7 @@ def train(
         scheduler (Scheduler): The scheduler for the diffusion process.
         dataloader_train (DataLoader): DataLoader for the training dataset.
         dataloader_val (DataLoader): DataLoader for the validation dataset.
-        optimizer (AdamW): Optimizer for updating model parameters.
+        optimizer (Adam): Optimizer for updating model parameters.
         lr_scheduler (LambdaLR): The learning rate scheduler.
         criterion (nn.Module): Loss function to compute the loss.
         start_epoch (int): The epoch to start training from. Default is 0.
@@ -253,7 +257,7 @@ def train(
                 )
 
         # Validation step
-        if (epoch % validation_interval == 0 and epoch > 0) or epoch == epochs - 1:
+        if epoch % validation_interval == 0 or epoch == epochs - 1:
             loss_val = evaluate(
                 diffusion=diffusion,
                 scheduler=scheduler,
@@ -384,6 +388,7 @@ if __name__ == "__main__":
     data_path = config["dataset"]["processed_dataset_path"]
     split_path = config["dataset"]["split_dataset_path"]
     checkpoint_path = config["dataset"]["checkpoint_path"]
+    image_size = config["dataset"]["image_size"]
 
     available_splits = get_splits(split_path)
 
@@ -408,9 +413,11 @@ if __name__ == "__main__":
         #     split_path=split_path,
         #     generator=get_generator(seed),
         # )
-        print(f"Building compositional split of the dataset at {data_path} with seed {seed}...")
+        print(
+            f"Building compositional split of the dataset at {data_path} with seed {seed}..."
+        )
         build_compositional_split(
-            data_path=data_path,
+            data_path=data_path + str(image_size),
             split_path=split_path,
             mappings=mappings,
             combos=config["dataset"]["held_out_combinations"],
@@ -478,20 +485,24 @@ if __name__ == "__main__":
     resnet_spatial_resolutions = hyperparameters["resnet_spatial_resolutions"]
     resnet_attention_heads = hyperparameters["resnet_attention_heads"]
 
+    time_embedding_mult = hyperparameters["time_embedding_mult"]
+    time_embedding_dimension = resnet_base_channels * time_embedding_mult
+
     text_hidden_size = hyperparameters["text_hidden_size"]
     text_encoder_layers = hyperparameters["text_encoder_layers"]
+    dropout = hyperparameters["dropout"]
 
     diffusion = Diffusion(
         input_channels=resnet_in_channels,
         output_channels=resnet_out_channels,
         base_channels=resnet_base_channels,
         spatial_resolutions=resnet_spatial_resolutions,
-        time_embedding_dimension=resnet_base_channels,
+        time_embedding_dimension=time_embedding_dimension,
         text_embedding_dimension=text_hidden_size,
         heads=resnet_attention_heads,
         vocabulary_size=vocabulary_size,
         text_encoder_layers=text_encoder_layers,
-        dropout=0,
+        dropout=dropout,
     ).to(device)
 
     # 4. Initialize the scheduler for the diffusion process
@@ -555,10 +566,11 @@ if __name__ == "__main__":
         shuffle=False,
     )
 
-    optimizer = AdamW(diffusion.parameters(), lr=learning_rate)
+    optimizer = Adam(diffusion.parameters(), lr=learning_rate)
     steps = epochs * len(dataloader_train)
     lr_scheduler = get_lr_scheduler(optimizer, total_steps=steps, warmup_steps=10)
     criterion = nn.MSELoss()
+    #TODO EMA
 
     # 6. Save the model hyperparameters and tokenizer vocabulary for reproducibility
     save_model_hyperparameters(
@@ -569,9 +581,11 @@ if __name__ == "__main__":
         output_channels=resnet_out_channels,
         base_channels=resnet_base_channels,
         spatial_resolutions=resnet_spatial_resolutions,
+        time_embedding_mult=time_embedding_mult,
         text_embedding_dimension=text_hidden_size,
         heads=resnet_attention_heads,
         text_encoder_layers=text_encoder_layers,
+        dropout=dropout,
     )
 
     # 7. Choose an available checkpoint to resume training or start from scratch
@@ -596,7 +610,7 @@ if __name__ == "__main__":
             diffusion.load_state_dict(checkpoint["model_state_dict"])
             optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             lr_scheduler.load_state_dict(checkpoint["lr_scheduler_state_dict"])
-            start_epoch = checkpoint.get("epoch", 0)
+            start_epoch = checkpoint.get("epoch", 0) + 1
             loss_val = checkpoint.get("loss_val", float("inf"))
         else:
             print("Invalid choice. Exiting.")

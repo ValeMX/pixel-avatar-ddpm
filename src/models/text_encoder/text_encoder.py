@@ -31,6 +31,7 @@ class TextEncoder(nn.Module):
         self.layers = layers
 
         self.embedding = nn.Embedding(vocabulary_size, hidden_dimension)
+        self.dropout = nn.Dropout(dropout)
 
         self.encoder_blocks = nn.ModuleList(
             [
@@ -60,10 +61,11 @@ class TextEncoder(nn.Module):
         x = self.embedding(x)
         # (batch_size, sequence_length, hidden_dimension)
 
-        # 2. Add positional encoding TODO Forse si può calcolare solo una volta nell'init
+        # 2. Add positional encoding and apply dropout to the embedded tokens
         # Shape before and after this operation:
         # (batch_size, sequence_length, hidden_dimension)
         x = x + self.get_positional_encoding(torch.arange(x.size(1), device=x.device))
+        x = self.dropout(x)
         # (batch_size, sequence_length, hidden_dimension)
 
         # 3. Pass the result through a series of encoder blocks

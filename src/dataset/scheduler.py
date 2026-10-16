@@ -182,7 +182,7 @@ class Scheduler:
         # Clamp the predicted original sample to the range [-1, 1] to avoid numerical instability during training.
         # This is important because the predicted original sample can sometimes exceed this range due to noise,
         # which can lead to issues during the denoising process. Clamping ensures that the values remain within a valid range.
-        #pred_original_sample = pred_original_sample.clamp(-1.0, 1.0)
+        pred_original_sample = pred_original_sample.clamp(-1.0, 1.0)
 
         # 3. Compute the mean (µ_t) for the predicted previous sample (x_t-1).
         # Knowing that the formula for the mean (µ_t) is:

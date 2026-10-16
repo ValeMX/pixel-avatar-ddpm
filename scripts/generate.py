@@ -154,6 +154,7 @@ if __name__ == "__main__":
 
     seed = config["training"]["seed"]
     checkpoint_path = config["dataset"]["checkpoint_path"]
+    image_size = config["dataset"]["image_size"]
 
     # 2. Choose an available tokenizer vocabulary and model
     available_checkpoints = get_models(checkpoint_path)
@@ -220,7 +221,7 @@ if __name__ == "__main__":
     s = config["scheduler"]["s"]
 
     scheduler = Scheduler(
-        generator=get_generator(21, device),
+        generator=get_generator(seed, device),
         training_steps=training_steps,
         beta_start=beta_start,
         beta_end=beta_end,
@@ -269,7 +270,7 @@ if __name__ == "__main__":
             diffusion=diffusion,
             cfg=cfg,
             cfg_scale=cfg_scale,
-            output_size=32,
+            output_size=image_size,
             inference_steps=inference_steps,
             device=device,
         )
@@ -277,6 +278,6 @@ if __name__ == "__main__":
         # Convert the generated image to a PIL Image and display it
         pil_image = Image.fromarray(generated_image)
         pil_image.save(
-            f"generated_image_{len([f for f in os.listdir('.') if f.startswith('generated_image_')])}.png"
+            f"{checkpoint_path}/generated_image_{len([f for f in os.listdir(checkpoint_path) if f.startswith('generated_image_')])}.png"
         )
         pil_image.show()

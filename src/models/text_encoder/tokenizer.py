@@ -7,15 +7,15 @@ class Tokenizer:
     def __init__(
         self,
         min_freq: int = 1,
-        max_vocab: int = 10000,
-        max_sequence_length: int = 64,
+        max_vocab: int = 1000,
+        max_sequence_length: int = 70,
     ):
         """Initialize the Tokenizer.
 
         Args:
             min_freq (int): Minimum frequency for a token to be included in the vocabulary. Default is 1.
-            max_vocab (int): Maximum size of the vocabulary. Default is 10000.
-            max_sequence_length (int): Maximum length of the tokenized sequences. Default is 64.
+            max_vocab (int): Maximum size of the vocabulary. Default is 1000.
+            max_sequence_length (int): Maximum length of the tokenized sequences. Default is 70.
         """
         self.vocabulary: dict[str, int] = {}
         self.inverse_vocabulary: dict[int, str] = {}

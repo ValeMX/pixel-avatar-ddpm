@@ -31,7 +31,7 @@ if __name__ == "__main__":
     preprocessor = Preprocessor(data_path=raw_data_path, mappings=mappings)
 
     preprocessor.preprocess_dataset(
-        output_dir=processed_data_path,
+        output_dir=processed_data_path + str(image_size),
         image_extension=image_extension,
         attributes_extension=attributes_extension,
         caption_extension=caption_extension,

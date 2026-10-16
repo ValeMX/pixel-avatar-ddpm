@@ -81,14 +81,14 @@ glasses: # Type of glasses (type 11 is no glasses)
 
 hair: # Type of head hair
   0: "bald"
-  1: "shaved" ###
-  2: "" ###
+  1: "shaved"
+  2: "bald with side hair"
   3: "double space buns"
   4: "pigtails"
   5: "afro puff"
   6: "dreadlocks"
   7: "short dreadlocks"
-  8: "spiky mohawk" ### 
+  8: "spiky mohawk"
   9: "curly short bob"
   10: "curly short crop"
   11: "short crop"
@@ -97,7 +97,7 @@ hair: # Type of head hair
   14: "wavy medium length"
   15: "short curly afro"
   16: "medium dreadlocks"
-  17: "short neat side-part" ###
+  17: "short neat with side part"
   18: "short crew cut"
   19: "short buzz"
   20: "bald top with side hair"

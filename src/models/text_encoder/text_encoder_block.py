@@ -32,22 +32,24 @@ class TextEncoderBlock(nn.Module):
             batch_first=True,
         )
 
-        self.dropout_attention = nn.Dropout(dropout)
-
         # Feed-forward layer
         self.feed_forward = nn.Sequential(
             nn.Linear(hidden_dimension, feedforward_dimension),
             nn.SiLU(),
             nn.Dropout(dropout),
             nn.Linear(feedforward_dimension, hidden_dimension),
-            nn.Dropout(dropout),
         )
 
         # Layer normalization
         self.layer_norm1 = nn.LayerNorm(hidden_dimension)
         self.layer_norm2 = nn.LayerNorm(hidden_dimension)
 
-    def forward(self, x: torch.Tensor, padding_mask: torch.Tensor | None = None) -> torch.Tensor:
+        # Dropout layer
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self, x: torch.Tensor, padding_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Forward pass of the text encoder block.
 
         Args:
@@ -63,28 +65,22 @@ class TextEncoderBlock(nn.Module):
         attention_output, _ = self.self_attention(x, x, x, need_weights=False)
         # (batch_size, sequence_length, hidden_dimension)
 
-        # 2. Apply dropout to the attention output
+        # 2. Add the attention output to the input and apply layer normalization
         # Shape before and after this operation:
         # (batch_size, sequence_length, hidden_dimension)
-        attention_output = self.dropout_attention(attention_output)
+        x = self.layer_norm1(x + self.dropout(attention_output))
         # (batch_size, sequence_length, hidden_dimension)
 
-        # 3. Add the attention output to the input and apply layer normalization
-        # Shape before and after this operation:
-        # (batch_size, sequence_length, hidden_dimension)
-        x = self.layer_norm1(x + attention_output)
-        # (batch_size, sequence_length, hidden_dimension)
-
-        # 4. Pass the result through the feed-forward layer
+        # 3. Pass the result through the feed-forward layer
         # Shape before and after this operation:
         # (batch_size, sequence_length, hidden_dimension)
         feedforward_output = self.feed_forward(x)
         # (batch_size, sequence_length, hidden_dimension)
 
-        # 5. Add the feed-forward output to the input and apply layer normalization
+        # 4. Add the feed-forward output to the input and apply layer normalization
         # Shape before and after this operation:
         # (batch_size, sequence_length, hidden_dimension)
-        x = self.layer_norm2(x + feedforward_output)
+        x = self.layer_norm2(x + self.dropout(feedforward_output))
         # (batch_size, sequence_length, hidden_dimension)
 
         return x
