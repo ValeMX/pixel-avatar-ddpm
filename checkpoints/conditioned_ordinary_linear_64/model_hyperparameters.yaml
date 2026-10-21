@@ -1,0 +1,18 @@
+model:
+  image_size: 64
+  resnet_in_channels: 3
+  resnet_out_channels: 3
+  resnet_base_channels: 128
+  resnet_spatial_resolutions: 3
+  resnet_attention_heads: 4
+  time_embedding_multiplier: 4
+  text_encoder_layers: 4
+  text_hidden_size: 128
+  dropout: 0.1
+scheduler:
+  timesteps: 1000
+  beta_start: 0.0001
+  beta_end: 0.02
+  beta_max: 0.999
+  s: 0.008
+  type: linear

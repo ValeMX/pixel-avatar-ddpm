@@ -1,14 +1,12 @@
 import math
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from .text_encoder_block import TextEncoderBlock
 
 
 class TextEncoder(nn.Module):
-    """Text encoder that encodes input text into a latent space."""
+    """Text Encoder class that encodes input text into a latent space."""
 
     def __init__(
         self,
@@ -18,13 +16,14 @@ class TextEncoder(nn.Module):
         layers: int = 2,
         dropout: float = 0.1,
     ):
-        """Initialize the text encoder.
+        """Initialize the Text Encoder.
 
         Args:
             vocabulary_size: Size of the vocabulary.
-            hidden_dimension: Dimension of the hidden layers.
-            heads: Number of attention heads.
-            layers: Number of layers in the encoder.
+            hidden_dimension: Dimension of the hidden layers. Default is 64.
+            heads: Number of attention heads. Default is 4.
+            layers: Number of layers in the encoder. Default is 2.
+            dropout: Dropout rate. Default is 0.1.
         """
         super(TextEncoder, self).__init__()
         self.hidden_dimension = hidden_dimension
@@ -45,15 +44,17 @@ class TextEncoder(nn.Module):
             ]
         )
 
-    def forward(self, x: torch.Tensor, padding_mask: torch.Tensor | None = None) -> torch.Tensor:
-        """Forward pass of the text encoder.
+    def forward(
+        self, x: torch.Tensor, padding_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """Forward pass of the Text Encoder.
 
         Args:
-            x (torch.Tensor): A tensor of shape (batch_size, sequence_length) representing the input text.
+            x (torch.Tensor): A tensor of shape (batch_size, sequence_length) representing the input text tokens indices.
             padding_mask (torch.Tensor, optional): A tensor of shape (batch_size, sequence_length) representing the padding mask.
 
         Returns:
-            A tensor of shape (batch_size, sequence_length, hidden_dimension) representing the encoded text.
+            torch.Tensor: A tensor of shape (batch_size, sequence_length, hidden_dimension) representing the encoded text.
         """
         # 1. Embed the input tokens into a latent space of dimension hidden_dimension
         # Shape before and after this operation:
@@ -81,12 +82,14 @@ class TextEncoder(nn.Module):
         """Generate sinusoidal encoding for the given token positions.
 
         Args:
-            positions: A tensor of shape (sequence_length,) representing the token positions.
+            positions (torch.Tensor): A tensor of shape (sequence_length,) representing the token positions.
 
         Returns:
-            A tensor of shape (sequence_length, hidden_dimension) representing the sinusoidal encoding.
+            torch.Tensor: A tensor of shape (sequence_length, hidden_dimension) representing the sinusoidal encoding.
         """
         positions = positions.to(torch.float32)
+
+        # Compute the frequencies for the sinusoidal encoding
         half = self.hidden_dimension // 2
         freqs = torch.exp(
             -math.log(10000)
@@ -95,39 +98,13 @@ class TextEncoder(nn.Module):
             )
             / half
         )
+
+        # Compute the sinusoidal encoding using sine and cosine functions
         args = positions[:, None] * freqs[None]
         encoding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
 
+        # If the hidden dimension is odd, append a zero vector to the encoding
         if self.hidden_dimension % 2 == 1:
             encoding = torch.cat([encoding, torch.zeros_like(encoding[:, :1])], dim=-1)
 
         return encoding
-
-
-if __name__ == "__main__":
-    # Example usage of the TextEncoder
-    vocabulary_size = 10000
-    hidden_dimension = 64
-    heads = 4
-    layers = 2
-
-    model = TextEncoder(
-        vocabulary_size=vocabulary_size,
-        hidden_dimension=hidden_dimension,
-        heads=heads,
-        layers=layers,
-    )
-
-    # Create a random input tensor with shape (batch_size, sequence_length)
-    input_tensor = torch.randint(0, vocabulary_size, (2, 12))
-
-    print("Input shape:", input_tensor.shape)
-
-    # Forward pass through the model
-    output_tensor = model(input_tensor)
-
-    print("Output shape:", output_tensor.shape)
-    print(
-        "Number of parameters:",
-        sum(p.numel() for p in model.parameters() if p.requires_grad),
-    )

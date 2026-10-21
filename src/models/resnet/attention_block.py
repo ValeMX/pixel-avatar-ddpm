@@ -4,11 +4,11 @@ import torch.nn.functional as F
 
 
 class AttentionBlock(nn.Module):
-    """Attention block of the ResNet that applies self-attention and cross-attention to the input.
+    """Attention Block class of the ResNet model.
 
-    This block consists of a series of operations that include normalization, convolution, self-attention,
-    cross-attention with a text embedding, and a feed-forward neural network. The block also includes
-    residual connections to preserve the input information throughout the operations.
+    This block implements a multi-head self-attention mechanism followed by
+    a cross-attention mechanism with the text embeddings and a feed-forward neural network.
+    It also includes residual connections and normalization layers.
 
     Note:
         The forward pass of the Attention block consists of the following steps:
@@ -22,20 +22,20 @@ class AttentionBlock(nn.Module):
 
     def __init__(
         self,
-        channels: int = 64,
+        channels: int,
         num_groups: int = 32,
         text_embedding_dimension: int = 64,
         num_heads: int = 4,
         feedforward_dimension: int = 256,
     ):
-        """Initialize the attention block.
+        """Initialize the Attention Block.
 
         Args:
-            channels: Number of channels in the input feature maps.
-            num_groups: Number of groups for group normalization. Default is 32.
-            text_embedding_dimension: Dimension of the text embedding. Default is 64.
-            num_heads: Number of attention heads. Default is 4.
-            feedforward_dimension: Dimension of the feed-forward neural network. Default is 256.
+            channels (int): Number of channels in the input feature maps.
+            num_groups (int): Number of groups for Group Normalization. Default is 32.
+            text_embedding_dimension (int): Dimension of the text embedding. Default is 64.
+            num_heads (int): Number of attention heads. Default is 4.
+            feedforward_dimension (int): Dimension of the feed-forward neural network. Default is 256.
         """
         super(AttentionBlock, self).__init__()
         self.convolution_input = nn.Conv2d(channels, channels, kernel_size=1, padding=0)
@@ -71,18 +71,18 @@ class AttentionBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        text_embedding: torch.Tensor,
+        text_embeddings: torch.Tensor,
         text_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Forward pass of the attention block.
+        """Forward pass of the Attention Block.
 
         Args:
             x (torch.Tensor): Input tensor of shape (batch_size, channels, height, width).
-            text_embedding (torch.Tensor): Text embedding tensor of shape (batch_size, sequence_length, text_embedding_dimension).
-            text_mask (torch.Tensor, optional): Optional mask tensor for the text embedding of shape (batch_size, sequence_length).
+            text_embeddings (torch.Tensor): Text embeddings tensor of shape (batch_size, sequence_length, text_embedding_dimension).
+            text_mask (torch.Tensor, optional): Optional mask tensor for the text embedding of shape (batch_size, sequence_length). Default is None.
 
         Returns:
-            Output tensor of shape (batch_size, channels, height, width).
+            torch.Tensor: Output tensor of shape (batch_size, channels, height, width).
         """
         # Preserve the input tensor for the final residual connection.
         # Shape: (batch_size, channels, height, width)
@@ -93,10 +93,11 @@ class AttentionBlock(nn.Module):
         # (batch_size, channels, height, width)
         x = self.groupnorm(x)
         x = self.convolution_input(x)
+        # (batch_size, channels, height, width)
 
         # 2. Reshape the query tensor to prepare for attention computation.
         # Note: In order to apply the attention mechanism, we need to reshape the query tensor
-        # to have the shape (batch_size, sequence_length, channels), where sequence_length = height * width.
+        #       to have the shape (batch_size, sequence_length, channels), where sequence_length = height * width.
         # Shape before and after this operation:
         # (batch_size, channels, height, width)
         n, c, h, w = x.shape
@@ -134,8 +135,8 @@ class AttentionBlock(nn.Module):
         x = self.layernorm2(x)
         x, _ = self.attention2(
             x,
-            text_embedding,
-            text_embedding,
+            text_embeddings,
+            text_embeddings,
             key_padding_mask=text_mask,
             need_weights=False,
         )

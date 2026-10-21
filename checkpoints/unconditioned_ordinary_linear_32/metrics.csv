@@ -1,0 +1,2 @@
+checkpoint_path,hyperparameters_path,split_path,scheduler_type,parameters_count,parameters_size_bytes,image_size,fid,kid_mean,kid_std,test_prompt,diversity_score
+checkpoints/unconditioned_ordinary_linear_32,checkpoints\unconditioned_ordinary_linear_32\model_hyperparameters.yaml,data/splits/ordinary_32,linear,37782787,151131148,32,50.853207,0.003738,0.004011,,0.082020

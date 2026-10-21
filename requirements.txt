@@ -1,8 +1,9 @@
 matplotlib==3.11.2
 numpy==2.5.4
 pandas==3.0.6
-Pillow==12.3.0
+Pillow==13.0.0
 PyYAML==6.0.3
 torch==2.14.1
-torchvision==0.29.1
+torchmetrics==1.9.0
+torchvision==0.30.0.dev20261016+cu134
 tqdm==4.67.1

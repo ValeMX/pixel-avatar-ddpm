@@ -201,7 +201,7 @@ eye_color: # Color of the eye irises
   3: "gray"
   4: "black"
 
-face_color: # Color of the face skin TODO
+face_color: # Color of the face skin
   0: "dark brown"
   1: "medium dark brown"
   2: "medium brown"

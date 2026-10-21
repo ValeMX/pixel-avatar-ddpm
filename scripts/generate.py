@@ -1,13 +1,12 @@
 import sys
 from pathlib import Path
 
-# TODO Commentare tutto
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
-import torch
+import numpy as np
 import os
+import torch
 
 from tqdm import tqdm
 from PIL import Image
@@ -32,7 +31,7 @@ def generate(
     output_size: int = 32,
     inference_steps: int = 50,
     device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-):
+) -> np.ndarray:
     """Generate an image based on a given prompt using the diffusion model.
 
     Args:
@@ -50,7 +49,7 @@ def generate(
         device (torch.device): The device to run the model on (CPU or GPU). Default is CUDA if available, otherwise CPU.
 
     Returns:
-        A numpy array representing the generated image.
+        ndarray: A numpy array representing the generated image.
     """
     diffusion.eval()
 
@@ -131,71 +130,79 @@ if __name__ == "__main__":
 
     seed = config["training"]["seed"]
     checkpoint_path = config["dataset"]["checkpoint_path"]
-    image_size = config["dataset"]["image_size"]
 
-    # 2. Choose an available tokenizer vocabulary and model
-    available_checkpoints = get_models(checkpoint_path)
-    print(f"Available checkpoints: {available_checkpoints}")
-    print(
-        "Choose a checkpoint to use for tokenizer vocabulary and model> ",
-        end="",
-    )
-    chosen_checkpoint = input()
+    # 1. Choose an available tokenizer vocabulary and model
+    available_models = get_models(checkpoint_path)
+    print(f"Available models: ")
+    for i, model in enumerate(available_models, start=1):
+        print(f"  {i}. {model}")
 
-    tokenizer = Tokenizer()
-    hyperparameters = None
-
-    if chosen_checkpoint in available_checkpoints:
-        print(f"Using checkpoint: {chosen_checkpoint}")
-        checkpoint_path = checkpoint_path + f"/{chosen_checkpoint}"
-
-        # Load the tokenizer vocabulary from the checkpoint
-        tokenizer.load_vocabulary(checkpoint_path + "/tokenizer_vocabulary.csv")
-
-        # Load the model hyperparameters from the checkpoint
-        hyperparameters = load_hyperparameters(
-            checkpoint_path + "/model_hyperparameters.yaml"
-        )
-
-    else:
+    chosen_model = input("Select a model by number: ").strip()
+    try:
+        chosen_model_index = int(chosen_model) - 1
+        if 0 <= chosen_model_index < len(available_models):
+            checkpoint_path += "/" + available_models[chosen_model_index]
+            print(f"Using model: {available_models[chosen_model_index]}")
+        else:
+            raise ValueError("Invalid choice. Exiting.")
+    except ValueError:
         print("Invalid choice. Exiting.")
         sys.exit(1)
 
-    if hyperparameters is None:
-        print("Error: Model hyperparameters not found. Exiting.")
-        sys.exit(1)
+    vocabulary_path = checkpoint_path + "/tokenizer_vocabulary.csv"
+    hyperparameters_path = checkpoint_path + "/model_hyperparameters.yaml"
 
-    # 3. Initialize the diffusion model
+    # 2. Load the tokenizer and model hyperparameters
+    tokenizer = Tokenizer()
+    tokenizer.load_vocabulary(vocabulary_path)
     vocabulary_size = tokenizer.get_vocabulary_size()
 
-    resnet_in_channels = hyperparameters["resnet_in_channels"]
-    resnet_out_channels = hyperparameters["resnet_out_channels"]
-    resnet_base_channels = hyperparameters["resnet_base_channels"]
-    resnet_spatial_resolutions = hyperparameters["resnet_spatial_resolutions"]
-    resnet_attention_heads = hyperparameters["resnet_attention_heads"]
+    hyperparameters = load_hyperparameters(hyperparameters_path)
 
-    text_hidden_size = hyperparameters["text_hidden_size"]
-    text_encoder_layers = hyperparameters["text_encoder_layers"]
+    if hyperparameters is None:
+        print(
+            f"Error: unable to load hyperparameters from {hyperparameters_path} file."
+        )
+        sys.exit(1)
 
+    model_hyperparameters = hyperparameters["model"]
+    scheduler_hyperparameters = hyperparameters["scheduler"]
+
+    image_size = model_hyperparameters["image_size"]
+    resnet_in_channels = model_hyperparameters["resnet_in_channels"]
+    resnet_out_channels = model_hyperparameters["resnet_out_channels"]
+    resnet_base_channels = model_hyperparameters["resnet_base_channels"]
+    resnet_spatial_resolutions = model_hyperparameters["resnet_spatial_resolutions"]
+    resnet_attention_heads = model_hyperparameters["resnet_attention_heads"]
+
+    time_embedding_multiplier = model_hyperparameters["time_embedding_multiplier"]
+    time_embedding_dimension = resnet_base_channels * time_embedding_multiplier
+
+    text_hidden_size = model_hyperparameters["text_hidden_size"]
+    text_encoder_layers = model_hyperparameters["text_encoder_layers"]
+    dropout = model_hyperparameters["dropout"]
+
+    # 3. Initialize the diffusion model
     diffusion = Diffusion(
         input_channels=resnet_in_channels,
         output_channels=resnet_out_channels,
         base_channels=resnet_base_channels,
         spatial_resolutions=resnet_spatial_resolutions,
-        time_embedding_dimension=resnet_base_channels,
+        time_embedding_dimension=time_embedding_dimension,
         text_embedding_dimension=text_hidden_size,
         heads=resnet_attention_heads,
         vocabulary_size=vocabulary_size,
         text_encoder_layers=text_encoder_layers,
+        dropout=dropout,
     ).to(device)
 
     # 4. Initialize the scheduler for the diffusion process
-    training_steps = config["scheduler"]["timesteps"]
-    beta_start = config["scheduler"]["beta_start"]
-    beta_end = config["scheduler"]["beta_end"]
-    beta_max = config["scheduler"]["beta_max"]
-    type = config["scheduler"]["type"]
-    s = config["scheduler"]["s"]
+    training_steps = scheduler_hyperparameters["timesteps"]
+    beta_start = scheduler_hyperparameters["beta_start"]
+    beta_end = scheduler_hyperparameters["beta_end"]
+    beta_max = scheduler_hyperparameters["beta_max"]
+    s = scheduler_hyperparameters["s"]
+    scheduler_type = scheduler_hyperparameters["type"]
 
     scheduler = Scheduler(
         generator=get_generator(seed, device),
@@ -203,34 +210,44 @@ if __name__ == "__main__":
         beta_start=beta_start,
         beta_end=beta_end,
         beta_max=beta_max,
-        type=type,
+        type=scheduler_type,
         s=s,
     )
 
     # 5. Choose an available checkpoint for the model and load it
     available_checkpoints = get_checkpoints(checkpoint_path)
-    print(f"Available checkpoints: {available_checkpoints}")
-    print(
-        "Choose a checkpoint to load> ",
-        end="",
-    )
-    chosen_checkpoint = input()
+    print(f"Available checkpoints:")
+    for i, checkpoint in enumerate(available_checkpoints, start=1):
+        print(f"  {i}: {checkpoint}")
 
-    if chosen_checkpoint in available_checkpoints:
-        print(f"Loading checkpoint: {chosen_checkpoint}")
-        checkpoint_file = checkpoint_path + f"/{chosen_checkpoint}"
-        checkpoint = load_checkpoint(checkpoint_file, device)
-        diffusion.load_state_dict(checkpoint["model_state_dict"])
-    else:
+    chosen_checkpoint = input("Select a checkpoint by number: ").strip()
+    try:
+        chosen_checkpoint_index = int(chosen_checkpoint) - 1
+        if 0 <= chosen_checkpoint_index < len(available_checkpoints):
+            chosen_checkpoint = available_checkpoints[chosen_checkpoint_index]
+            print(f"Using checkpoint: {available_checkpoints[chosen_checkpoint_index]}")
+        else:
+            raise ValueError("Invalid choice. Exiting.")
+    except ValueError:
         print("Invalid choice. Exiting.")
         sys.exit(1)
 
-    # 6. Set the model to evaluation mode
+    checkpoint = load_checkpoint(
+        checkpoint_path + "/" + chosen_checkpoint,
+        device,
+    )
+    diffusion.load_state_dict(checkpoint["model_state_dict"])
+
+    # 6. Get inference parameters from the configuration file
     inference_steps = config["inference"]["timesteps"]
     cfg = config["inference"]["guidance_scale"] > 0
     cfg_scale = config["inference"]["guidance_scale"]
 
-    # 7. Generate images based on user-provided prompts
+    # 7. Check if the output directory exists, and create it if it doesn't
+    output_dir = Path(checkpoint_path) / "generated"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 8. Generate images based on user-provided prompts
     while True:
         print("Enter a prompt for image generation (or type 'exit' to quit): ")
         user_prompt = input()
@@ -255,6 +272,6 @@ if __name__ == "__main__":
         # Convert the generated image to a PIL Image and display it
         pil_image = Image.fromarray(generated_image)
         pil_image.save(
-            f"{checkpoint_path}/generated_image_{len([f for f in os.listdir(checkpoint_path) if f.startswith('generated_image_')])}.png"
+            f"{output_dir}/generated_image_{len([f for f in os.listdir(output_dir) if f.startswith('generated_image_')])}.png"
         )
         pil_image.show()

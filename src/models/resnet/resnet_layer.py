@@ -1,17 +1,15 @@
 import torch.nn as nn
-import torch.nn.functional as f
 
 from .residual_block import ResidualBlock
 from .attention_block import AttentionBlock
 
 
 class ResNetLayer(nn.Sequential):
-    """ResNet layer that consists of a sequence of blocks.
+    """ResNet Layer class that processes input tensors through a series of ResNet blocks, Attention blocks,
+        Downsample layers, and Upsample layers.
 
-    This layer can contain ResNet blocks, downsampling layers, and upsampling layers.
-    It is designed to process input tensors through a series of transformations and
-    pass time embeddings through the network.
-
+    This layer is a nn.Sequential child class designed to process input tensors through a series of transformations and
+    pass time embeddings to the ResNet blocks and text embeddings to the Attention blocks.
     """
 
     def forward(self, input, *args):
@@ -19,7 +17,7 @@ class ResNetLayer(nn.Sequential):
 
         Args:
             input: Input tensor of shape (batch_size, channels, height, width).
-            *args: Time embedding and text embedding.
+            *args: Time embedding, text embedding and text mask (optional).
 
         Returns:
             Output tensor after processing through the ResNet layer.

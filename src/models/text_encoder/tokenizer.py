@@ -2,7 +2,7 @@ from collections import Counter
 
 
 class Tokenizer:
-    """Tokenizer class for converting text into tokens and building a vocabulary."""
+    """Tokenizer class that builds the vocabulary, converts text into tokens and vice versa."""
 
     def __init__(
         self,
@@ -23,6 +23,7 @@ class Tokenizer:
         self.max_vocabulary = max_vocab
         self.max_sequence_length = max_sequence_length
 
+        # Define special tokens
         self.padding_token = "[PAD]"
         self.masking_token = "[MASK]"
         self.unknown_token = "[UNK]"
@@ -33,10 +34,10 @@ class Tokenizer:
         """Tokenize the input text into a list of tokens.
 
         Args:
-            text: A string representing the input text.
+            text (str): A string representing the input text.
 
         Returns:
-            A list of tokens.
+            list[str]: A list of tokens.
         """
         # Convert text to lowercase
         text = text.lower()
@@ -46,11 +47,11 @@ class Tokenizer:
         # Split by whitespace and remove empty tokens
         return [token for token in text.strip().split() if token]
 
-    def build_vocabulary(self, texts: list[str]):
+    def build_vocabulary(self, texts: list[str]) -> None:
         """Build the vocabulary from a list of texts.
 
         Args:
-            texts: A list of strings representing the input texts.
+            texts (list[str]): A list of strings representing the input texts.
         """
         token_counter = Counter()
         for text in texts:
@@ -75,11 +76,11 @@ class Tokenizer:
             self.inverse_vocabulary[idx] = token
             idx += 1
 
-    def load_vocabulary(self, vocab_file: str):
-        """Load the vocabulary from a file as "token, index".
+    def load_vocabulary(self, vocab_file: str) -> None:
+        """Load the vocabulary from a headerless csv file as "token, index".
 
         Args:
-            vocab_file: Path to the vocabulary file.
+            vocab_file (str): Path to the vocabulary file.
         """
         with open(vocab_file, "r") as f:
             self.vocabulary = {
@@ -90,11 +91,11 @@ class Tokenizer:
                 idx: token for token, idx in self.vocabulary.items()
             }
 
-    def save_vocabulary(self, vocab_file: str):
-        """Save the vocabulary to a file as "token, index".
+    def save_vocabulary(self, vocab_file: str) -> None:
+        """Save the vocabulary to a headerless csv file as "token, index".
 
         Args:
-            vocab_file: Path to the vocabulary file.
+            vocab_file (str): Path to the vocabulary file.
         """
         with open(vocab_file, "w") as f:
             for token in self.vocabulary:
@@ -104,20 +105,25 @@ class Tokenizer:
         """Encode the input text into a list of token indices.
 
         Args:
-            text: A string representing the input text.
+            text (str): A string representing the input text.
 
         Returns:
-            A list of token indices.
+            list[int]: A list of token indices.
         """
+        # Tokenize the text and add special tokens for start and end of sequence
         raw_tokens = self.tokenize(text)
         tokens = [self.start_token] + raw_tokens + [self.end_token]
 
+        # Truncate the token list if it exceeds the maximum sequence length, keeping the end token
         if len(tokens) > self.max_sequence_length:
             tokens = tokens[: self.max_sequence_length - 1] + [self.end_token]
 
+        # Pad the token list with the padding token if it's shorter than the maximum sequence length
         padding_length = self.max_sequence_length - len(tokens)
         tokens += [self.padding_token] * padding_length
 
+        # Map tokens to their corresponding indices in the vocabulary, 
+        # using the unknown token index for any token not found in the vocabulary
         return [
             self.vocabulary.get(token, self.vocabulary[self.unknown_token])
             for token in tokens
@@ -131,19 +137,22 @@ class Tokenizer:
             skip_special_tokens: Whether to skip special tokens in the output. Default is True.
 
         Returns:
-            A string representing the decoded text.
+            str: A string representing the decoded text.
         """
         special_tokens = {
             self.vocabulary.get(self.padding_token),
+            self.vocabulary.get(self.masking_token),
             self.vocabulary.get(self.start_token),
             self.vocabulary.get(self.end_token),
-            self.vocabulary.get(self.masking_token),
         }
 
         tokens = []
         for idx in token_indices:
             if skip_special_tokens and idx in special_tokens:
                 continue
+
+            # Map the index back to the corresponding token in the inverse vocabulary,
+            # using the unknown token for any index not found in the inverse vocabulary
             token = self.inverse_vocabulary.get(idx, self.unknown_token)
             tokens.append(token)
 
@@ -153,6 +162,6 @@ class Tokenizer:
         """Get the size of the vocabulary.
 
         Returns:
-            The size of the vocabulary.
+            int: The size of the vocabulary.
         """
         return len(self.vocabulary)

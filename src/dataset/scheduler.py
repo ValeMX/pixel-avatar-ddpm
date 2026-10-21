@@ -266,6 +266,17 @@ class Scheduler:
             .to(torch.long)
         )
 
+    def set_generator(self, generator: torch.Generator) -> None:
+        """Set the random number generator for the Scheduler.
+
+        This method allows you to set a new random number generator for the Scheduler,
+        which will be used for generating noise during the denoising process.
+
+        Args:
+            generator (torch.Generator): A PyTorch random number generator for reproducibility.
+        """
+        self.generator = generator
+
     def _get_previous_timestep(self, timestep: int) -> int:
         """Get the previous timestep for the given timestep during inference.
 

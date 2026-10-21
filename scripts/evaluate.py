@@ -4,13 +4,13 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
-import argparse
-import time
 import csv
 import itertools
+import numpy as np
+import time
 import torch
 import torch.nn as nn
-import numpy as np
+import shutil
 
 from PIL import Image
 from tqdm import tqdm
@@ -23,6 +23,7 @@ from src.dataset import Scheduler, AvatarDataset
 from src.models import Diffusion
 from src.models.text_encoder import Tokenizer
 from src.utils.helpers import *
+from src.utils.splits import get_compositional_test_samples
 
 
 def count_parameters(model: nn.Module) -> tuple[int, int]:
@@ -118,42 +119,39 @@ def generate_batch(
     return images.to(torch.uint8)
 
 
-# Salvare 4 immagini generate per visualizzare la diversità
 def evaluate_diversity(
     diffusion: Diffusion,
     scheduler: Scheduler,
     tokenizer: Tokenizer,
-    prompt: str,
-    seed=42,
+    prompts: list[str],
+    images: list[Image.Image],
     num_seeds: int = 5,
     channels: int = 3,
     output_size: int = 32,
     inference_steps: int = 250,
     cfg_scale: float = 3.5,
-    device: torch.device = torch.device("cuda"),
     output_dir: str = "diversity_samples",
-) -> float:
+    device: torch.device = torch.device("cuda"),
+) -> dict[int, float]:
     """Evaluate the diversity of generated images for a given prompt using different random seeds.
 
     Args:
-        diffusion: The diffusion model.
-        scheduler: The scheduler.
-        tokenizer: The tokenizer.
-        prompt: The prompt to generate images for.
-        seed: The initial random seed. Default is 42.
-        num_seeds: The number of different random seeds to use. Default is 5.
-        channels: The number of channels in the generated images. Default is 3.
-        output_size: The size of the generated images. Default is 32.
-        inference_steps: The number of inference steps. Default is 250.
-        cfg_scale: The scale for classifier-free guidance. Default is 3.5.
-        device: The device to run the evaluation on. Default is "cuda".
-        output_dir: The directory to save the generated images. Default is "diversity_samples".
+        diffusion (Diffusion): The diffusion model to use for generation.
+        scheduler (Scheduler): The scheduler for the diffusion process.
+        tokenizer (Tokenizer): The tokenizer for encoding prompts.
+        prompts (list[str]): A list of text prompts to generate images from.
+        images (list[Image.Image]): A list of original images corresponding to the prompts.
+        num_seeds (int, optional): Number of different random seeds to use for generation. Defaults to 5.
+        channels (int, optional): Number of channels in the output images. Defaults to 3.
+        output_size (int, optional): Size of the output images. Defaults to 32.
+        inference_steps (int, optional): Number of denoising steps. Defaults to 250.
+        cfg_scale (float, optional): Classifier-Free Guidance scale. Defaults to 3.5.
+        output_dir (str, optional): Directory to save generated images for visual inspection. Defaults to "diversity_samples".
+        device (torch.device, optional): Device to run the generation on. Defaults to CUDA if available.
 
     Returns:
-        float: The average diversity (MSE) between the generated images.
+        dict[int, float]: A dictionary mapping prompt indices to their average diversity (MSE).
     """
-    np.random.seed(seed)
-
     generated_imgs = []
     bar = tqdm(
         range(num_seeds),
@@ -161,13 +159,27 @@ def evaluate_diversity(
         unit="seed",
         leave=False,
     )
+
+    # Check if the output directory exists, if not create it
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    # Save the original images for visual inspection
+    for i, img in enumerate(images):
+        img.save(f"{output_dir}/original_{i}.png")
+
+    if len(images) > 0:
+        generated_imgs.append(
+            torch.stack([transforms.ToTensor()(img).to(device) for img in images])
+        )
+
     for s in bar:
-        gen = get_generator(np.random.randint(0, 2**32), device)
+        gen = get_generator(np.random.randint(0, np.iinfo(np.int32).max), device)
+        scheduler.set_generator(gen)
         img = generate_batch(
             diffusion=diffusion,
             scheduler=scheduler,
             tokenizer=tokenizer,
-            prompts=[prompt],
+            prompts=prompts,
             generator=gen,
             channels=channels,
             output_size=output_size,
@@ -175,15 +187,291 @@ def evaluate_diversity(
             cfg_scale=cfg_scale,
             device=device,
         )
+
+        # Save the generated image for visual inspection
+        for i in range(img.size(0)):
+            img_pil = Image.fromarray(img[i].permute(1, 2, 0).cpu().numpy())
+            img_pil.save(f"{output_dir}/seed_{s}_sample_{i}.png")
+
+        # Normalize to [0, 1] for MSE calculation
         generated_imgs.append(img.float() / 255.0)
 
-    # Compute pairwise MSE distances between generated images
-    distances = []
-    for i, j in itertools.combinations(range(num_seeds), 2):
-        mse_dist = torch.mean((generated_imgs[i] - generated_imgs[j]) ** 2).item()
-        distances.append(mse_dist)
+    # Compute pairwise MSE distances between generated images for the same prompt
+    distances = {}
+    for img1, img2 in itertools.combinations(generated_imgs, 2):
+        for prompt_idx in range(img1.size(0)):
+            mse = torch.mean((img1[prompt_idx] - img2[prompt_idx]) ** 2).item()
+            (
+                distances[prompt_idx].append(mse)
+                if prompt_idx in distances
+                else distances.setdefault(prompt_idx, [mse])
+            )
 
-    return float(np.mean(distances))
+    return {prompt_idx: np.mean(mse_list) for prompt_idx, mse_list in distances.items()}
+
+
+def evaluate_computational_metrics(
+    diffusion: Diffusion,
+    scheduler: Scheduler,
+    tokenizer: Tokenizer,
+    batch_size: int,
+    seed: int = 42,
+    channels: int = 3,
+    output_size: int = 32,
+    inference_steps: int = 250,
+    cfg_scale: float = 3.5,
+    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+) -> tuple[dict[int, float], dict[int, float]]:
+    """Evaluate the computational metrics (sampling time and VRAM usage) of the diffusion model.
+
+    Args:
+        diffusion: The diffusion model.
+        scheduler: The scheduler.
+        tokenizer: The tokenizer.
+        batch_size: The batch size to use for evaluation.
+        seed: The random seed for reproducibility. Default is 42.
+        channels: The number of channels in the generated images. Default is 3.
+        output_size: The size of the generated images. Default is 32.
+        inference_steps: The number of inference steps. Default is 250.
+        cfg_scale: The scale for classifier-free guidance. Default is 3.5.
+        device: The device to run the evaluation on. Default is "cuda" if available.
+
+    Returns:
+        tuple[dict[int, float], dict[int, float]]: A tuple containing the average sampling time per image (in seconds) and the peak VRAM usage (in MB) for each prompt.
+    """
+    sampling_times = {}
+    vram_peaks = {}
+    batch_sizes = set([batch_size] + [1, 2, 4, 8, 16, 32])
+
+    for bs in batch_sizes:
+        if bs > batch_size:
+            continue
+
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats(device)
+            torch.cuda.synchronize()
+
+        start_time = time.time()
+
+        # Generate a batch of images to measure time and VRAM usage
+        _ = generate_batch(
+            diffusion=diffusion,
+            scheduler=scheduler,
+            tokenizer=tokenizer,
+            prompts=[""] * bs,
+            generator=get_generator(seed, device),
+            channels=channels,
+            output_size=output_size,
+            inference_steps=inference_steps,
+            cfg_scale=cfg_scale,
+            device=device,
+        )
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+
+        sampling_time_per_batch = time.time() - start_time
+        sampling_time_per_image = sampling_time_per_batch / bs
+
+        vram_peak_bytes = (
+            torch.cuda.max_memory_allocated(device) if torch.cuda.is_available() else 0
+        )
+        vram_peak_mb = vram_peak_bytes / (1024**2)
+
+        sampling_times[bs] = sampling_time_per_image
+        vram_peaks[bs] = vram_peak_mb
+
+    return sampling_times, vram_peaks
+
+
+def evaluate_fid_kid(
+    diffusion: Diffusion,
+    scheduler: Scheduler,
+    tokenizer: Tokenizer,
+    dataloader: DataLoader,
+    batch_size: int,
+    metric_samples: int,
+    conditioned: bool = True,
+    seed: int = 42,
+    channels: int = 3,
+    output_size: int = 32,
+    inference_steps: int = 250,
+    cfg_scale: float = 3.5,
+    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+) -> tuple[float, float, float]:
+    """Evaluate the FID and KID metrics of the diffusion model.
+
+    Args:
+        diffusion: The diffusion model.
+        scheduler: The scheduler.
+        tokenizer: The tokenizer.
+        dataloader: The DataLoader for the dataset to evaluate on.
+        batch_size: The batch size to use for evaluation.
+        metric_samples: The number of samples to use for FID/KID evaluation.
+        seed: The random seed for reproducibility. Default is 42.
+        channels: The number of channels in the generated images. Default is 3.
+        output_size: The size of the generated images. Default is 32.
+        inference_steps: The number of inference steps. Default is 250.
+        cfg_scale: The scale for classifier-free guidance. Default is 3.5.
+        device: The device to run the evaluation on. Default is "cuda" if available.
+
+    Returns:
+        tuple[float, float, float]: A tuple containing the FID, KID mean, and KID standard deviation scores.
+    """
+    fid = FrechetInceptionDistance(feature=2048).to(device)
+    kid = KernelInceptionDistance(feature=2048, subset_size=min(50, metric_samples)).to(
+        device
+    )
+
+    dataloader_iterator = itertools.cycle(dataloader)
+
+    # Load real images and update FID/KID with them
+    print("Loading real images for FID/KID evaluation...")
+    bar = tqdm(
+        range(metric_samples // batch_size),
+        desc="Processing real images",
+        unit="batch",
+        leave=True,
+    )
+    for _ in bar:
+        real_imgs, captions = next(dataloader_iterator)
+        real_imgs_uint8 = (real_imgs * 255).to(torch.uint8).to(device)
+        fid.update(real_imgs_uint8, real=True)
+        kid.update(real_imgs_uint8, real=True)
+
+    # Generate synthetic images and update FID/KID with them
+    print("Generating synthetic images for FID/KID evaluation...")
+    bar = tqdm(
+        range(metric_samples // batch_size),
+        desc="Generating synthetic images",
+        unit="batch",
+        leave=True,
+    )
+    for _ in bar:
+        _, captions = next(dataloader_iterator)
+        current_batch_prompts = list(captions)
+
+        if not conditioned:
+            current_batch_prompts = [""] * len(current_batch_prompts)
+
+        fake_imgs_uint8 = generate_batch(
+            diffusion=diffusion,
+            scheduler=scheduler,
+            tokenizer=tokenizer,
+            prompts=current_batch_prompts,
+            generator=get_generator(seed, device),
+            channels=channels,
+            output_size=output_size,
+            inference_steps=inference_steps,
+            cfg_scale=cfg_scale,
+            device=device,
+        )
+
+        fid.update(fake_imgs_uint8, real=False)
+        kid.update(fake_imgs_uint8, real=False)
+
+    fid_score = fid.compute().item()
+    kid_mean, kid_std = kid.compute()
+
+    return fid_score, kid_mean.item(), kid_std.item()
+
+
+def evaluate_compositional_metrics(
+    split_path: str,
+    checkpoint_path: str,
+    diffusion: Diffusion,
+    scheduler: Scheduler,
+    tokenizer: Tokenizer,
+    seed: int = 42,
+    channels: int = 3,
+    output_size: int = 32,
+    inference_steps: int = 250,
+    guidance_scale: float = 3.5,
+    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+) -> list[float]:
+    """Evaluate the compositional metrics of the diffusion model.
+
+    For each compositional sample in the dataset split, this function generates an image
+    using the diffusion model and computes the Mean Squared Error (MSE) between the generated image
+    and the corresponding real image.
+    This function saves both the real and generated images for visual inspection and saves
+    the MSE scores for each compositional sample in the output folder.
+
+    Args:
+        split_path: The path to the dataset split for compositional evaluation.
+        checkpoint_path: The path to the model checkpoint.
+        diffusion: The diffusion model.
+        scheduler: The scheduler.
+        tokenizer: The tokenizer.
+        seed: The random seed for reproducibility. Default is 42.
+        channels: The number of channels in the generated images. Default is 3.
+        output_size: The size of the generated images. Default is 32.
+        inference_steps: The number of inference steps. Default is 250.
+        guidance_scale: The scale for classifier-free guidance. Default is 3.5.
+        device: The device to run the evaluation on. Default is "cuda" if available.
+
+    Returns:
+        list[float]: A list containing the MSE scores for each compositional sample.
+    """
+    # Initialize the list to store the MSE scores
+    mse_scores = []
+
+    compositional_samples = get_compositional_test_samples(
+        split_path=split_path,
+        seed=seed,
+    )
+
+    samples_path = Path(checkpoint_path) / "compositional_samples"
+    samples_path.mkdir(parents=True, exist_ok=True)
+
+    for combination in compositional_samples:
+        real_image_path = combination["image"]
+        prompt_path = combination["prompt"]
+        combination_str = f"{combination['attribute_1']}-{combination['value_1']}---{combination['attribute_2']}-{combination['value_2']}"
+
+        shutil.copy(
+            real_image_path,
+            samples_path / f"real_{combination_str}.png",
+        )
+
+        prompt = ""
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            prompt = f.read().strip()
+
+        generated_image = generate_batch(
+            diffusion=diffusion,
+            scheduler=scheduler,
+            tokenizer=tokenizer,
+            prompts=[prompt],
+            generator=get_generator(seed, device),
+            channels=channels,
+            output_size=output_size,
+            inference_steps=inference_steps,
+            cfg_scale=guidance_scale,
+            device=device,
+        )
+
+        generated_image = Image.fromarray(
+            generated_image[0].permute(1, 2, 0).cpu().numpy()
+        ).convert("RGB")
+        generated_image.save(samples_path / f"generated_{combination_str}.png")
+
+        # Compute MSE between the real and generated images
+        real_image_np = (
+            np.array(Image.open(real_image_path).convert("RGB"), dtype=np.float32)
+            / 255.0
+        )
+        generated_image_np = np.array(generated_image, dtype=np.float32) / 255.0
+        mse = np.mean((real_image_np - generated_image_np) ** 2)
+        mse_scores.append(float(mse))
+
+    metrics_path = samples_path / "compositional_metrics.csv"
+    with metrics_path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(range(len(mse_scores)))
+        writer.writerow(mse_scores)
+
+    return mse_scores
 
 
 if __name__ == "__main__":
@@ -198,42 +486,53 @@ if __name__ == "__main__":
 
     checkpoint_path = config["dataset"]["checkpoint_path"]
     split_path = config["dataset"]["split_dataset_path"]
+    metrics_path = config["dataset"]["metrics_path"]
+    metrics_computational_path = config["dataset"]["metrics_computational_path"]
 
     available_splits = get_splits(split_path)
+
     print(f"Available splits:")
-    for i, split in enumerate(available_splits):
+    for i, split in enumerate(available_splits, start=1):
         print(f"  {i}: {split}")
 
-    selected_split = int(input("Select a split by number: "))
-    if selected_split < 0 or selected_split >= len(available_splits):
-        print("Invalid split selection.")
+    chosen_split = input("Select a split by number: ").strip()
+    try:
+        chosen_split_index = int(chosen_split) - 1
+        if 0 <= chosen_split_index < len(available_splits):
+            split_path = split_path + f"/{available_splits[chosen_split_index]}"
+            print(f"Using split: {available_splits[chosen_split_index]}")
+        else:
+            raise ValueError("Invalid choice. Exiting.")
+    except ValueError:
+        print("Invalid choice. Exiting.")
         sys.exit(1)
-    split_path = split_path + "/" + available_splits[selected_split]
 
     # 1. Load Tokenizer and Hyperparameters
-    available_models = get_models()
-    print("Available checkpoints:")
-    for i, checkpoint in enumerate(available_models):
-        print(f"  {i}: {checkpoint}")
+    available_models = get_models(checkpoint_path)
+    print("Available models:")
+    for i, model in enumerate(available_models, start=1):
+        print(f"  {i}: {model}")
 
-    selected_checkpoint = int(input("Select a checkpoint by number: "))
-    if selected_checkpoint < 0 or selected_checkpoint >= len(available_models):
-        print("Invalid checkpoint selection.")
+    chosen_model = input("Select a model by number: ").strip()
+    try:
+        chosen_model_index = int(chosen_model) - 1
+        if 0 <= chosen_model_index < len(available_models):
+            checkpoint_path += "/" + available_models[chosen_model_index]
+            print(f"Using model: {available_models[chosen_model_index]}")
+        else:
+            raise ValueError("Invalid choice. Exiting.")
+    except ValueError:
+        print("Invalid choice. Exiting.")
         sys.exit(1)
-    checkpoint_path = available_models[selected_checkpoint]
 
-    vocabulary_path = Path(checkpoint_path) / "tokenizer_vocabulary.csv"
-    hyperparameters_path = Path(checkpoint_path) / "model_hyperparameters.yaml"
-
-    print(f"Using checkpoint folder: {checkpoint_path}")
-    print(f"Using vocabulary: {vocabulary_path}")
-    print(f"Using hyperparameters: {hyperparameters_path}")
+    vocabulary_path = checkpoint_path + "/tokenizer_vocabulary.csv"
+    hyperparameters_path = checkpoint_path + "/model_hyperparameters.yaml"
 
     tokenizer = Tokenizer()
-    tokenizer.load_vocabulary(str(vocabulary_path))
+    tokenizer.load_vocabulary(vocabulary_path)
     vocabulary_size = tokenizer.get_vocabulary_size()
 
-    hyperparameters = load_hyperparameters(str(hyperparameters_path))
+    hyperparameters = load_hyperparameters(hyperparameters_path)
 
     if hyperparameters is None:
         print(
@@ -250,8 +549,10 @@ if __name__ == "__main__":
     resnet_base_channels = model_hyperparameters["resnet_base_channels"]
     resnet_spatial_resolutions = model_hyperparameters["resnet_spatial_resolutions"]
     resnet_attention_heads = model_hyperparameters["resnet_attention_heads"]
+
     time_embedding_multiplier = model_hyperparameters["time_embedding_multiplier"]
     time_embedding_dimension = resnet_base_channels * time_embedding_multiplier
+
     text_hidden_size = model_hyperparameters["text_hidden_size"]
     text_encoder_layers = model_hyperparameters["text_encoder_layers"]
     dropout = model_hyperparameters["dropout"]
@@ -272,16 +573,23 @@ if __name__ == "__main__":
 
     available_checkpoints = get_checkpoints(checkpoint_path)
     print(f"Available checkpoints:")
-    for i, checkpoint in enumerate(available_checkpoints):
+    for i, checkpoint in enumerate(available_checkpoints, start=1):
         print(f"  {i}: {checkpoint}")
 
-    selected_checkpoint = int(input("Select a checkpoint by number: "))
-    if selected_checkpoint < 0 or selected_checkpoint >= len(available_checkpoints):
-        print("Invalid checkpoint selection.")
+    chosen_checkpoint = input("Select a checkpoint by number: ").strip()
+    try:
+        chosen_checkpoint_index = int(chosen_checkpoint) - 1
+        if 0 <= chosen_checkpoint_index < len(available_checkpoints):
+            chosen_checkpoint = available_checkpoints[chosen_checkpoint_index]
+            print(f"Using checkpoint: {available_checkpoints[chosen_checkpoint_index]}")
+        else:
+            raise ValueError("Invalid choice. Exiting.")
+    except ValueError:
+        print("Invalid choice. Exiting.")
         sys.exit(1)
 
     checkpoint = load_checkpoint(
-        checkpoint_path + "/" + available_checkpoints[selected_checkpoint],
+        checkpoint_path + "/" + chosen_checkpoint,
         device,
     )
     diffusion.load_state_dict(checkpoint["model_state_dict"])
@@ -297,8 +605,9 @@ if __name__ == "__main__":
     beta_end = scheduler_hyperparameters["beta_end"]
     beta_max = scheduler_hyperparameters["beta_max"]
     s = scheduler_hyperparameters["s"]
-    scheduler_type = scheduler_hyperparameters["scheduler_type", "linear"]
+    scheduler_type = scheduler_hyperparameters["type"]
 
+    # Load inference parameters from the configuration file
     inference_steps = config["inference"]["timesteps"]
     guidance_scale = config["inference"]["guidance_scale"]
     batch_size = config["inference"]["batch_size"]
@@ -320,19 +629,12 @@ if __name__ == "__main__":
     scheduler.set_inference_timesteps(inference_steps)
 
     # 5. Measure Sampling Time and VRAM Usage
-    if torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats(device)
-        torch.cuda.synchronize()
-
-    start_time = time.time()
-
-    # Generate a batch of images to measure time and VRAM usage
-    _ = generate_batch(
+    sampling_times, vram_peaks = evaluate_computational_metrics(
         diffusion=diffusion,
         scheduler=scheduler,
         tokenizer=tokenizer,
-        prompts=[""] * batch_size,
-        generator=get_generator(seed, device),
+        batch_size=batch_size,
+        seed=seed,
         channels=resnet_in_channels,
         output_size=image_size,
         inference_steps=inference_steps,
@@ -340,15 +642,8 @@ if __name__ == "__main__":
         device=device,
     )
 
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-
-    sampling_time_single_batch = time.time() - start_time
-    sampling_time_per_image = sampling_time_single_batch / batch_size
-    vram_peak_bytes = (
-        torch.cuda.max_memory_allocated(device) if torch.cuda.is_available() else 0
-    )
-    vram_peak_mb = vram_peak_bytes / (1024**2)
+    sampling_time_per_image = np.mean(list(sampling_times.values()))
+    vram_peak_mb = np.max(list(vram_peaks.values()))
 
     print(f"Average sampling time per image: {sampling_time_per_image:.4f} s")
     print(f"Peak VRAM usage: {vram_peak_mb:.2f} MB")
@@ -361,7 +656,7 @@ if __name__ == "__main__":
     )
 
     dataset_test = AvatarDataset(
-        data_path=split_path,
+        data_path=split_path + "/test",
         image_extension="png",
         caption_extension="txt",
         transform=transform,
@@ -371,40 +666,37 @@ if __name__ == "__main__":
         dataset_test,
         batch_size=batch_size,
         shuffle=False,
-        generator=get_generator(seed, device),
+        generator=get_generator(seed),
     )
 
     # 7. FID and KID Evaluation
-    fid = FrechetInceptionDistance(feature=2048).to(device)
-    kid = KernelInceptionDistance(subset_size=min(50, metric_samples)).to(device)
-
-    # Load real images and update FID/KID with them
-    real_count = 0
-    print("Loading real images for FID/KID evaluation...")
-    bar = tqdm(dataloader, desc="Processing real images", unit="batch", leave=False)
-    for real_imgs, captions in bar:
-        real_imgs_uint8 = (real_imgs * 255).to(torch.uint8).to(device)
-        fid.update(real_imgs_uint8, real=True)
-        kid.update(real_imgs_uint8, real=True)
-        real_count += real_imgs.size(0)
-        if real_count >= metric_samples:
-            break
-
-    # Generate synthetic images and update FID/KID with them
-    print("Generating synthetic images for FID/KID evaluation...")
-    gen_count = 0
-
-    bar = tqdm(
-        dataloader, desc="Generating synthetic images", unit="batch", leave=False
-    )
-    for _, captions in bar:
-        current_batch_prompts = list(captions)
-        fake_imgs_uint8 = generate_batch(
+    if "unconditioned" in checkpoint_path.lower():
+        print("Evaluating FID and KID for unconditioned generation...")
+        fid_score, kid_mean, kid_std = evaluate_fid_kid(
             diffusion=diffusion,
             scheduler=scheduler,
             tokenizer=tokenizer,
-            prompts=current_batch_prompts,
-            generator=get_generator(seed, device),
+            dataloader=dataloader,
+            batch_size=batch_size,
+            metric_samples=metric_samples,
+            conditioned=False,
+            seed=seed,
+            channels=resnet_in_channels,
+            output_size=image_size,
+            inference_steps=inference_steps,
+            cfg_scale=0.0,
+            device=device,
+        )
+
+    else:
+        fid_score, kid_mean, kid_std = evaluate_fid_kid(
+            diffusion=diffusion,
+            scheduler=scheduler,
+            tokenizer=tokenizer,
+            dataloader=dataloader,
+            batch_size=batch_size,
+            metric_samples=metric_samples,
+            seed=seed,
             channels=resnet_in_channels,
             output_size=image_size,
             inference_steps=inference_steps,
@@ -412,38 +704,75 @@ if __name__ == "__main__":
             device=device,
         )
 
-        fid.update(fake_imgs_uint8, real=False)
-        kid.update(fake_imgs_uint8, real=False)
-        gen_count += len(current_batch_prompts)
-        if gen_count >= metric_samples:
-            break
-
-    fid_score = fid.compute().item()
-    kid_mean, kid_std = kid.compute()
-    kid_score = kid_mean.item()
-
     print(f"FID: {fid_score:.4f}")
-    print(f"KID: {kid_score:.4f}")
+    print(f"KID: {kid_mean:.4f} ± {kid_std:.4f}")
 
-    # 8. Diversity Evaluation on the Same Prompt
-    # TODO: estrai un prompt di test casuale da un'immagine di test
-    test_prompt = ""
-    diversity_score = evaluate_diversity(
+    # 8. Compositional Evaluation
+    compositional_scores = []
+    if "compositional" in split_path.lower():
+        compositional_scores = evaluate_compositional_metrics(
+            split_path=split_path,
+            checkpoint_path=checkpoint_path,
+            diffusion=diffusion,
+            scheduler=scheduler,
+            tokenizer=tokenizer,
+            seed=seed,
+            channels=resnet_in_channels,
+            output_size=image_size,
+            inference_steps=inference_steps,
+            guidance_scale=guidance_scale,
+            device=device,
+        )
+
+    # 9. Diversity Evaluation on the Same Prompt
+    np.random.seed(seed)
+
+    test_prompts = []
+    original_images = []
+
+    # Extract a prompt from the test dataset for diversity evaluation
+    if len(dataset_test) > 0 and "unconditioned" not in checkpoint_path.lower():
+        choice = np.random.randint(0, len(dataset_test))
+        test_caption_file = dataset_test.caption_paths[choice]
+        with open(test_caption_file, "r", encoding="utf-8") as f:
+            test_prompt = f.read().strip()
+        test_prompts.append(test_prompt)
+
+        test_image_file = dataset_test.image_paths[choice]
+        original_image = Image.open(test_image_file).convert("RGB")
+        original_images.append(original_image)
+    elif "unconditioned" in checkpoint_path.lower():
+        test_prompts.append("")
+
+    diversity_scores = evaluate_diversity(
         diffusion=diffusion,
         scheduler=scheduler,
         tokenizer=tokenizer,
-        prompt=test_prompt,
-        num_seeds=5,
+        images=original_images,
+        prompts=test_prompts,
+        num_seeds=diversity_samples,
         channels=resnet_in_channels,
         output_size=image_size,
         inference_steps=inference_steps,
         cfg_scale=guidance_scale,
         device=device,
+        output_dir=checkpoint_path + "/diversity_samples",
     )
-    print(f"Diversity Score: {diversity_score:.6f}")
 
-    # 9. Save Metrics to CSV
-    output_path = checkpoint_path + "/metrics.csv"
+    print(f"Diversity (MSE) score: {diversity_scores[0]:.6f}")
+    if len(test_prompts) > 0:
+        print(f"Prompt used for diversity evaluation: {test_prompts}")
+
+    # 10. Save Metrics to CSV
+    output_path = checkpoint_path + "/" + metrics_computational_path
+    file_exists = Path(output_path).exists()
+    with open(output_path, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(sampling_times.keys())
+        writer.writerow(sampling_times.values())
+        writer.writerow(vram_peaks.values())
+
+    output_path = checkpoint_path + "/" + metrics_path
     file_exists = Path(output_path).exists()
     with open(output_path, mode="a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -457,11 +786,11 @@ if __name__ == "__main__":
                     "parameters_count",
                     "parameters_size_bytes",
                     "image_size",
-                    "sampling_time_per_img_s",
-                    "gpu_vram_peak_mb",
                     "fid",
-                    "kid",
+                    "kid_mean",
+                    "kid_std",
                     "diversity_score",
+                    "test_prompt",
                 ]
             )
         writer.writerow(
@@ -470,14 +799,14 @@ if __name__ == "__main__":
                 hyperparameters_path,
                 split_path,
                 scheduler_type,
-                f"{params:,}",
-                f"{params_size:,}",
+                f"{params}",
+                f"{params_size}",
                 f"{image_size}",
-                f"{sampling_time_per_image:.4f}",
-                f"{vram_peak_mb:.2f}",
-                f"{fid_score:.4f}",
-                f"{kid_score:.4f}",
-                f"{diversity_score:.6f}",
+                f"{fid_score:.6f}",
+                f"{kid_mean:.6f}",
+                f"{kid_std:.6f}",
+                f"{diversity_scores[0]:.6f}",
+                f"{test_prompts[0] if len(test_prompts) > 0 else 'N/A'}",
             ]
         )
 

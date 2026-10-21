@@ -4,11 +4,13 @@ project_name: "pixel-avatar-ddpm"
 seed: 42 # For reproducibility
 
 dataset:
-  raw_dataset_10k_path: "data/raw/cartoonset10k"
-  raw_dataset_100k_path: "data/raw/cartoonset100k"
-  processed_dataset_path: "data/processed"
-  split_dataset_path: "data/splits"
-  checkpoint_path: "checkpoints"
+  raw_dataset_10k_path: "data/raw/cartoonset10k" # Path to the raw dataset containing 10,000 images
+  processed_dataset_path: "data/processed" # Path to the processed dataset containing images and attributes
+  split_dataset_path: "data/splits" # Path to the dataset splits (train, validation, test)
+  checkpoint_path: "checkpoints" # Path to save model checkpoints during training
+  metrics_path: "metrics.csv" # Path to save evaluation metrics during inference
+  metrics_computational_path: "metrics_computational.csv" # Path to save computational evaluation metrics during inference
+
   image_extension: "png" # File extension of the images in the dataset
   attributes_extension: "csv" # File extension of the attributes files in the dataset
   caption_extension: "txt" # File extension of the caption files in the dataset
@@ -23,13 +25,31 @@ dataset:
         attribute_2: facial_hair,
         value_2: mustache with goatee,
       }
+    - {
+        attribute_1: "hair_color",
+        value_1: "red",
+        attribute_2: "eye_color",
+        value_2: "blue",
+      }
+    - {
+        attribute_1: "face_color",
+        value_1: "fair pinkish",
+        attribute_2: "hair",
+        value_2: "top knot bun",
+      }
+    - {
+        attribute_1: "glasses",
+        value_1: "cat eye dark sunglasses",
+        attribute_2: "hair_color",
+        value_2: "yellow",
+      }
 
 model:
   # ResNet Parameters
   image_size: 32 # Size of the input images
   resnet_in_channels: 3 # Number of input channels (RGB images)
   resnet_out_channels: 3 # Number of output channels (RGB images)
-  resnet_base_channels: 128 # Base number of channels in the ResNet
+  resnet_base_channels: 64 # Base number of channels in the ResNet
   resnet_spatial_resolutions: 3 # Number of spatial resolution levels in the ResNet
   resnet_attention_heads: 4 # Number of attention heads in the ResNet
 
@@ -42,27 +62,26 @@ model:
   dropout: 0.1 # Dropout rate for the text encoder
 
 scheduler:
-  timesteps: 1000
-  beta_start: 0.0001
-  beta_end: 0.02
+  timesteps: 1000 # Number of timesteps for the diffusion process
+  beta_start: 0.0001 # Starting value of beta for the noise schedule
+  beta_end: 0.02 # Ending value of beta for the noise schedule
   beta_max: 0.999 # Maximum value of beta for the cosine noise schedule
   s: 0.008 # Value of s for the cosine noise schedule
   type: "cosine" # Type of noise schedule to use ("linear" or "cosine")
 
 training:
-  seed: 42
-  epochs: 50
-  batch_size: 32
+  seed: 42 # Seed for reproducibility during training
+  epochs: 50 # Number of epochs to train the model (25 for 64, 50 for 32)
+  batch_size: 32 # Batch size for training (10 for 64, 32 for 32)
   learning_rate: 0.0002 # Learning rate for the optimizer
   weight_decay: 0.01 # Weight decay for the optimizer
   dropout: 0.1 # Dropout rate for model regularization and Classifier-Free Guidance (CFG)
   validation_interval: 1 # Interval (in epochs) for validation during training
   patience: 10 # Number of epochs to wait for improvement before early stopping
-  checkpoint_dir: "checkpoints/"
 
 inference:
   timesteps: 250 # Number of steps for the diffusion process during inference
   guidance_scale: 3.5 # Guidance scale for Classifier-Free Guidance (CFG)
-  batch_size: 16 # Batch size for inference
-  metric_samples: 100 # Number of samples to generate during inference for evaluation metrics
-  diversity_samples: 4 # Number of samples to generate for diversity evaluation
+  batch_size: 32 # Batch size for inference
+  metric_samples: 250 # Number of samples to generate during inference for evaluation metrics
+  diversity_samples: 16 # Number of samples to generate for diversity evaluation

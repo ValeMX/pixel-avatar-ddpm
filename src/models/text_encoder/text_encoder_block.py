@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class TextEncoderBlock(nn.Module):
-    """Text encoder block that encodes input text via a multi-head self-attention and a feed-forward layer."""
+    """Text Encoder Block class that encodes input text via a multi-head self-attention layer
+        and a feed-forward layer with residual connections.
+    """
 
     def __init__(
         self,
@@ -13,12 +14,13 @@ class TextEncoderBlock(nn.Module):
         feedforward_dimension: int = 256,
         dropout: float = 0.1,
     ):
-        """Initialize the text encoder block.
+        """Initialize the Text Encoder Block.
 
         Args:
-            hidden_dimension: Dimension of the input and output.
-            num_heads: Number of attention heads.
-            feedforward_dimension: Dimension of the feed-forward layer.
+            hidden_dimension (int): Dimension of the input and output. Default is 64.
+            num_heads (int): Number of attention heads. Default is 4.
+            feedforward_dimension (int): Dimension of the feed-forward layer. Default is 256.
+            dropout (float): Dropout rate. Default is 0.1.
         """
         super(TextEncoderBlock, self).__init__()
         self.hidden_dimension = hidden_dimension
@@ -40,7 +42,7 @@ class TextEncoderBlock(nn.Module):
             nn.Linear(feedforward_dimension, hidden_dimension),
         )
 
-        # Layer normalization
+        # Layer normalizations
         self.layer_norm1 = nn.LayerNorm(hidden_dimension)
         self.layer_norm2 = nn.LayerNorm(hidden_dimension)
 
@@ -50,14 +52,14 @@ class TextEncoderBlock(nn.Module):
     def forward(
         self, x: torch.Tensor, padding_mask: torch.Tensor | None = None
     ) -> torch.Tensor:
-        """Forward pass of the text encoder block.
+        """Forward pass of the Text Encoder Block.
 
         Args:
             x (torch.Tensor): A tensor of shape (batch_size, sequence_length, hidden_dimension) representing the input text.
-            padding_mask (torch.Tensor, optional): A tensor of shape (batch_size, sequence_length) representing the padding mask.
+            padding_mask (torch.Tensor, optional): A tensor of shape (batch_size, sequence_length) representing the padding mask. Default is None.
 
         Returns:
-            A tensor of shape (batch_size, sequence_length, hidden_dimension) representing the encoded text.
+            torch.Tensor: A tensor of shape (batch_size, sequence_length, hidden_dimension) representing the encoded text.
         """
         # 1. Compute multi-head self-attention of the input
         # Shape before and after this operation:
@@ -65,19 +67,22 @@ class TextEncoderBlock(nn.Module):
         attention_output, _ = self.self_attention(x, x, x, need_weights=False)
         # (batch_size, sequence_length, hidden_dimension)
 
-        # 2. Add the attention output to the input and apply layer normalization
+        # 2. Add the attention output to its input and apply layer normalization
         # Shape before and after this operation:
         # (batch_size, sequence_length, hidden_dimension)
         x = self.layer_norm1(x + self.dropout(attention_output))
         # (batch_size, sequence_length, hidden_dimension)
 
         # 3. Pass the result through the feed-forward layer
+        # Note: The feed-forward layer projects the input to a higher-dimensional space feedforward_dimension
+        #       and then back to the original dimension hidden_dimension.
+        #       This allows the model to learn more complex representations.
         # Shape before and after this operation:
         # (batch_size, sequence_length, hidden_dimension)
         feedforward_output = self.feed_forward(x)
         # (batch_size, sequence_length, hidden_dimension)
 
-        # 4. Add the feed-forward output to the input and apply layer normalization
+        # 4. Add the feed-forward output to its input and apply layer normalization
         # Shape before and after this operation:
         # (batch_size, sequence_length, hidden_dimension)
         x = self.layer_norm2(x + self.dropout(feedforward_output))

@@ -47,23 +47,6 @@ def get_captions_from_split(split_path: str, split_type: str = "train") -> list[
     return captions
 
 
-def clear_checkpoints(checkpoint_path: str, keep_last: bool = True):
-    """Clear all checkpoint files in the specified directory. TODO non per forza serve il penultimo
-
-    Args:
-        checkpoint_path (str): Path to the directory containing checkpoint files.
-        keep_last (bool, optional): Whether to keep the last checkpoint file. Default is True.
-    """
-    checkpoint_dir = Path(checkpoint_path)
-    if checkpoint_dir.exists() and checkpoint_dir.is_dir():
-        for file in checkpoint_dir.glob("*.pt"):
-            if keep_last:
-                # Keep the last checkpoint
-                if file == max(checkpoint_dir.glob("*.pt"), key=os.path.getctime):
-                    continue
-            file.unlink()
-
-
 def save_model_hyperparameters(
     vocabulary_path: str,
     hyperparameters_path: str,
@@ -209,19 +192,21 @@ def train(
         validation_interval (int): The interval (in epochs) at which to perform validation. Default is 10.
         patience (int): Number of validation checks with no improvement before stopping training. Default is 3.
         patience_delta (float): Minimum change in validation loss to qualify as an improvement. Default is 0.01.
+        dropout (float): Dropout rate for the captions. Default is 0.1.
         checkpoint_path (str): The path to the directory where checkpoints will be saved. Default is "./checkpoints".
     Returns:
         dict[int, float]: A dictionary containing the validation loss for each validation step.
     """
-    best_loss_val = start_loss
-    loss_val = float("inf")
-    losses = {}
+    diffusion.train()
 
+    best_loss_val = loss_val = start_loss
+    losses = {}
     patience_counter = 0
 
-    diffusion.train()
     epoch_bar = tqdm.tqdm(
         range(start_epoch, epochs),
+        initial=start_epoch,
+        total=epochs,
         desc="Training Progress",
         unit="epoch",
         dynamic_ncols=True,
@@ -267,10 +252,10 @@ def train(
             )
 
             predicted_noise = diffusion(x_noise, t, encoded_captions.to(device))
-            print("Predicted noise!")
+
             loss = criterion(predicted_noise, noise)
             loss.backward()
-            print("Loss computed!")
+
             # Gradient clipping to prevent exploding gradients
             torch.nn.utils.clip_grad_norm_(diffusion.parameters(), max_norm=1.0)
             optimizer.step()
@@ -283,6 +268,15 @@ def train(
 
         # Validation step
         if epoch % validation_interval == 0 or epoch == epochs - 1:
+            save_checkpoint(
+                checkpoint_path + "/last.pt",
+                diffusion,
+                optimizer,
+                lr_scheduler,
+                epoch,
+                loss_val,
+            )
+
             loss_val = evaluate(
                 diffusion=diffusion,
                 scheduler=scheduler,
@@ -295,15 +289,6 @@ def train(
             )
 
             losses[epoch] = loss_val
-
-            save_checkpoint(
-                checkpoint_path + "/last.pt",
-                diffusion,
-                optimizer,
-                lr_scheduler,
-                epoch,
-                loss_val,
-            )
 
             if loss_val < best_loss_val * (1 - patience_delta):
                 best_loss_val = loss_val
@@ -413,65 +398,86 @@ if __name__ == "__main__":
     data_path = config["dataset"]["processed_dataset_path"]
     split_path = config["dataset"]["split_dataset_path"]
     checkpoint_path = config["dataset"]["checkpoint_path"]
-    image_size = config["dataset"]["image_size"]
 
     available_splits = get_splits(split_path)
 
-    print(f"Available splits: {available_splits}")
-    print(
-        "Choose a split to use for training (or type 'new' to create a new split)> ",
-        end="",
-    )
-    chosen_split = input()
+    print(f"Available splits:")
+    for i, split in enumerate(available_splits, start=1):
+        print(f"  {i}: {split}")
+    chosen_split = input(
+        "Select a split by number (or type 'new' to create a new split): "
+    ).strip()
 
     if chosen_split == "new":
-        print(f"Enter a name for the new split: ")
-        split_id = input().strip()
+        split_type = input(
+            "Choose the type of the new split (Compositional (C) or Ordinary (O)): "
+        ).strip()
+
+        if split_type.lower() not in ["c", "o"]:
+            print("Invalid choice. Exiting.")
+            sys.exit(1)
+
+        image_size = input(
+            f"Enter the image size for the new split (32 or 64): "
+        ).strip()
+
+        if image_size not in ["32", "64"]:
+            print("Invalid image size. Exiting.")
+            sys.exit(1)
+
+        image_size = int(image_size)
+
+        split_id = input("Enter a name for the new split: ").strip()
         split_path = split_path + f"/{split_id}"
 
         # Create a new split from the dataset
-        # print(
-        #     f"Building ordinary split of the dataset at {data_path} with seed {seed}..."
-        # )
-        # build_ordinary_split(
-        #     data_path=data_path,
-        #     split_path=split_path,
-        #     generator=get_generator(seed),
-        # )
-        print(
-            f"Building compositional split of the dataset at {data_path} with seed {seed}..."
-        )
-        build_compositional_split(
-            data_path=data_path + str(image_size),
-            split_path=split_path,
-            mappings=mappings,
-            combos=config["dataset"]["held_out_combinations"],
-            seed=seed,
-        )
-    else:
-        if chosen_split in available_splits:
-            print(f"Using existing split: {chosen_split}")
-            split_id = chosen_split
-            split_path = split_path + f"/{split_id}"
+        if split_type.lower() == "o":
+            print(
+                f"Building ordinary split of the dataset at {data_path} with seed {seed}..."
+            )
+            build_ordinary_split(
+                data_path=data_path + str(image_size),
+                split_path=split_path,
+                generator=get_generator(seed),
+            )
         else:
+            print(
+                f"Building compositional split of the dataset at {data_path} with seed {seed}..."
+            )
+            build_compositional_split(
+                data_path=data_path + str(image_size),
+                split_path=split_path,
+                mappings=mappings,
+                combos=config["dataset"]["held_out_combinations"],
+                seed=seed,
+            )
+    else:
+        try:
+            chosen_split_index = int(chosen_split) - 1
+            if 0 <= chosen_split_index < len(available_splits):
+                split_path = split_path + f"/{available_splits[chosen_split_index]}"
+                print(f"Using existing split: {available_splits[chosen_split_index]}")
+            else:
+                raise ValueError("Invalid choice. Exiting.")
+        except ValueError:
             print("Invalid choice. Exiting.")
             sys.exit(1)
 
     # 2. Choose an available tokenizer vocabulary and model or create new ones
     available_checkpoints = get_models(checkpoint_path)
-    print(f"Available checkpoints: {available_checkpoints}")
-    print(
-        "Choose a checkpoint to use for tokenizer vocabulary and model (or type 'new' to create a new ones)> ",
-        end="",
-    )
-    chosen_checkpoint = input()
+    print(f"Available checkpoints:")
+    for i, checkpoint in enumerate(available_checkpoints, start=1):
+        print(f"  {i}: {checkpoint}")
+
+    chosen_checkpoint = input(
+        "Choose a checkpoint to use for tokenizer vocabulary and model (or type 'new' to create a new ones): "
+    ).strip()
 
     tokenizer = Tokenizer()
     hyperparameters = None
 
     if chosen_checkpoint == "new":
-        print("Enter a name for the new checkpoint: ")
-        checkpoint_id = input().strip()
+        checkpoint_id = input("Enter a name for the new checkpoint: ").strip()
         checkpoint_path = checkpoint_path + f"/{checkpoint_id}"
 
         print(
@@ -481,19 +487,24 @@ if __name__ == "__main__":
         tokenizer.build_vocabulary(train_captions)
         hyperparameters = config
     else:
-        if chosen_checkpoint in available_checkpoints:
-            print(f"Using existing checkpoint: {chosen_checkpoint}")
-            checkpoint_path = checkpoint_path + f"/{chosen_checkpoint}"
-
-            # Load the tokenizer vocabulary from the checkpoint
-            tokenizer.load_vocabulary(checkpoint_path + "/tokenizer_vocabulary.csv")
-
-            # Load the model and scheduler hyperparameters from the checkpoint
-            hyperparameters = load_hyperparameters(
-                checkpoint_path + "/model_hyperparameters.yaml"
-            )
-
-        else:
+        try:
+            chosen_checkpoint_index = int(chosen_checkpoint) - 1
+            if 0 <= chosen_checkpoint_index < len(available_checkpoints):
+                checkpoint_path = (
+                    checkpoint_path
+                    + f"/{available_checkpoints[chosen_checkpoint_index]}"
+                )
+                print(
+                    f"Using existing checkpoint: {available_checkpoints[chosen_checkpoint_index]}"
+                )
+                tokenizer.load_vocabulary(checkpoint_path + "/tokenizer_vocabulary.csv")
+                hyperparameters = load_hyperparameters(
+                    checkpoint_path + "/model_hyperparameters.yaml"
+                )
+            else:
+                print("Invalid choice. Exiting.")
+                sys.exit(1)
+        except ValueError:
             print("Invalid choice. Exiting.")
             sys.exit(1)
 
@@ -507,6 +518,7 @@ if __name__ == "__main__":
     model_hyperparameters = hyperparameters["model"]
     scheduler_hyperparameters = hyperparameters["scheduler"]
 
+    image_size = model_hyperparameters["image_size"]
     resnet_in_channels = model_hyperparameters["resnet_in_channels"]
     resnet_out_channels = model_hyperparameters["resnet_out_channels"]
     resnet_base_channels = model_hyperparameters["resnet_base_channels"]
@@ -515,11 +527,10 @@ if __name__ == "__main__":
 
     time_embedding_multiplier = model_hyperparameters["time_embedding_multiplier"]
     time_embedding_dimension = resnet_base_channels * time_embedding_multiplier
-    print(f"Time embedding dimension: {time_embedding_dimension}")
 
     text_hidden_size = model_hyperparameters["text_hidden_size"]
     text_encoder_layers = model_hyperparameters["text_encoder_layers"]
-    dropout = model_hyperparameters["dropout"]
+    model_dropout = model_hyperparameters["dropout"]
 
     diffusion = Diffusion(
         input_channels=resnet_in_channels,
@@ -531,7 +542,7 @@ if __name__ == "__main__":
         heads=resnet_attention_heads,
         vocabulary_size=vocabulary_size,
         text_encoder_layers=text_encoder_layers,
-        dropout=dropout,
+        dropout=model_dropout,
     ).to(device)
 
     # 4. Initialize the scheduler for the diffusion process
@@ -557,7 +568,7 @@ if __name__ == "__main__":
     batch_size = config["training"]["batch_size"]
     learning_rate = config["training"]["learning_rate"]
     weight_decay = config["training"]["weight_decay"]
-    dropout = config["training"]["dropout"]
+    training_dropout = config["training"]["dropout"]
     validation_interval = config["training"]["validation_interval"]
     patience = config["training"]["patience"]
 
@@ -602,7 +613,6 @@ if __name__ == "__main__":
     steps = epochs * len(dataloader_train)
     lr_scheduler = get_lr_scheduler(optimizer, steps)
     criterion = nn.MSELoss()
-    # TODO EMA
 
     # 6. Save the model hyperparameters and tokenizer vocabulary for reproducibility
     save_model_hyperparameters(
@@ -618,7 +628,7 @@ if __name__ == "__main__":
         text_embedding_dimension=text_hidden_size,
         heads=resnet_attention_heads,
         text_encoder_layers=text_encoder_layers,
-        dropout=dropout,
+        dropout=model_dropout,
         timesteps=training_steps,
         beta_start=beta_start,
         beta_end=beta_end,
@@ -629,12 +639,12 @@ if __name__ == "__main__":
 
     # 7. Choose an available checkpoint to resume training or start from scratch
     available_checkpoints = get_checkpoints(checkpoint_path)
-    print(f"Available checkpoints: {available_checkpoints}")
-    print(
-        "Choose a checkpoint to resume training (or type 'new' to start from scratch)> ",
-        end="",
-    )
-    chosen_checkpoint = input()
+    print(f"Available checkpoints:")
+    for i, checkpoint in enumerate(available_checkpoints, start=1):
+        print(f"  {i}: {checkpoint}")
+    chosen_checkpoint = input(
+        "Choose a checkpoint to resume training (or type 'new' to start from scratch): "
+    ).strip()
 
     start_epoch = 0
     loss_val = float("inf")
@@ -642,16 +652,26 @@ if __name__ == "__main__":
     if chosen_checkpoint == "new":
         print("Starting training from scratch...")
     else:
-        if chosen_checkpoint in available_checkpoints:
-            print(f"Resuming training from checkpoint: {chosen_checkpoint}")
-            checkpoint_file = checkpoint_path + f"/{chosen_checkpoint}"
-            checkpoint = load_checkpoint(checkpoint_file, device)
-            diffusion.load_state_dict(checkpoint["model_state_dict"])
-            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-            lr_scheduler.load_state_dict(checkpoint["lr_scheduler_state_dict"])
-            start_epoch = checkpoint.get("epoch", 0) + 1
-            loss_val = checkpoint.get("loss_val", float("inf"))
-        else:
+        try:
+            chosen_checkpoint_index = int(chosen_checkpoint) - 1
+            if 0 <= chosen_checkpoint_index < len(available_checkpoints):
+                print(
+                    f"Resuming training from checkpoint: {available_checkpoints[chosen_checkpoint_index]}"
+                )
+                checkpoint_file = (
+                    checkpoint_path
+                    + f"/{available_checkpoints[chosen_checkpoint_index]}"
+                )
+                checkpoint = load_checkpoint(checkpoint_file, device)
+                diffusion.load_state_dict(checkpoint["model_state_dict"])
+                optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+                lr_scheduler.load_state_dict(checkpoint["lr_scheduler_state_dict"])
+                start_epoch = checkpoint["epoch"] + 1
+                loss_val = checkpoint["loss_val"]
+            else:
+                print("Invalid choice. Exiting.")
+                sys.exit(1)
+        except ValueError:
             print("Invalid choice. Exiting.")
             sys.exit(1)
 
@@ -671,7 +691,7 @@ if __name__ == "__main__":
         start_loss=loss_val,
         validation_interval=validation_interval,
         patience=patience,
-        dropout=dropout,
+        dropout=training_dropout,
         checkpoint_path=checkpoint_path,
     )
 

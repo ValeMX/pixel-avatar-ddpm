@@ -8,7 +8,14 @@ from typing import Any
 
 
 def load_config(config_path: str = "configs/config.yaml") -> dict[str, Any] | None:
-    """Retrieve project configs from YAML file and returns as a dictionary."""
+    """Retrieve project configs from YAML file and returns as a dictionary.
+
+    Args:
+        config_path (str): Path to the configuration YAML file. Default is "configs/config.yaml".
+
+    Returns:
+        dict[str, Any] | None: A dictionary containing the configuration parameters if the file is found and successfully loaded, otherwise None.
+    """
     try:
         with open(config_path, "r", encoding="utf-8") as file:
             config = yaml.safe_load(file)
@@ -21,7 +28,14 @@ def load_config(config_path: str = "configs/config.yaml") -> dict[str, Any] | No
 def load_mappings(
     mapping_path: str = "configs/attribute_mappings.yaml",
 ) -> dict[str, Any] | None:
-    """Retrieve mapping configs from YAML file and returns as a dictionary."""
+    """Retrieve mapping configs from YAML file and returns as a dictionary.
+
+    Args:
+        mapping_path (str): Path to the mapping YAML file. Default is "configs/attribute_mappings.yaml".
+
+    Returns:
+        dict[str, Any] | None: A dictionary containing the mapping parameters if the file is found and successfully loaded, otherwise None.
+    """
     try:
         with open(mapping_path, "r", encoding="utf-8") as file:
             mapping = yaml.safe_load(file)
@@ -39,7 +53,10 @@ def get_generator(
 
     Args:
         seed (int): The seed value for the generator. Default is 42.
-        device (torch.device | None): The device on which to create the generator.
+        device (torch.device, optional): The device on which to create the generator. Default is None.
+
+    Returns:
+        torch.Generator: A torch.Generator object initialized with the specified seed.
     """
     return torch.Generator(device=device).manual_seed(seed)
 
@@ -50,7 +67,19 @@ def get_splits(
     val_path: str = "/validation",
     test_path: str = "/test",
 ) -> list[str]:
-    """Retrieve the available splits from the specified directory."""
+    """Retrieve the available splits from the specified directory.
+
+    A split is considered available if it contains the required subdirectories for training, validation, and testing.
+
+    Args:
+        split_path (str): Path to the directory containing splits.
+        train_path (str): Relative path to the training split directory.
+        val_path (str): Relative path to the validation split directory.
+        test_path (str): Relative path to the test split directory.
+
+    Returns:
+        list[str]: A list of available split names.
+    """
 
     split_dir = Path(split_path)
     if not split_dir.exists():
@@ -81,12 +110,15 @@ def get_models(
     vocabulary_file: str = "tokenizer_vocabulary.csv",
     hyperparameters_file: str = "model_hyperparameters.yaml",
 ) -> list[str]:
-    """Retrieve the available checkpoints from the specified directory.
+    """Retrieve the available models from the specified directory.
 
     Args:
-        model_path: Path to the directory containing models.
-        vocabulary_file: Name of the vocabulary file to check for existence.
-        hyperparameters_file: Name of the hyperparameters file to check for existence.
+        model_path (str): Path to the directory containing models.
+        vocabulary_file (str): Name of the vocabulary file to check for existence.
+        hyperparameters_file (str): Name of the hyperparameters file to check for existence.
+
+    Returns:
+        list[str]: A list of available model names.
     """
 
     model_dir = Path(model_path)
@@ -112,8 +144,11 @@ def get_checkpoints(
     """Retrieve the available checkpoints from the specified directory.
 
     Args:
-        checkpoint_path: Path to the directory containing checkpoints.
-        checkpoint_extension: The file extension of the checkpoint files.
+        checkpoint_path (str): Path to the directory containing checkpoints.
+        checkpoint_extension (str): The file extension of the checkpoint files.
+
+    Returns:
+        list[str]: A list of available checkpoint file names.
     """
     checkpoint_dir = Path(checkpoint_path)
     if not checkpoint_dir.exists():
@@ -130,7 +165,14 @@ def get_checkpoints(
 
 
 def load_hyperparameters(hyperparameters_path: str) -> dict[str, Any] | None:
-    """Load hyperparameters from a YAML file and return as a dictionary."""
+    """Load hyperparameters from a YAML file and return as a dictionary.
+
+    Args:
+        hyperparameters_path (str): Path to the YAML file containing hyperparameters.
+
+    Returns:
+        dict[str, Any] | None: A dictionary of hyperparameters, or None if the file is not found.
+    """
     try:
         with open(hyperparameters_path, "r", encoding="utf-8") as file:
             hyperparameters = yaml.safe_load(file)
@@ -147,8 +189,8 @@ def save_checkpoint(
     lr_scheduler: torch.optim.lr_scheduler.LambdaLR,
     epoch: int,
     loss_val: float,
-):
-    """Save the model and optimizer state to a checkpoint file.
+) -> None:
+    """Save the model, optimizer, and learning rate scheduler state to a checkpoint file.
 
     Args:
         checkpoint_path (str): Path to the checkpoint file.
@@ -178,6 +220,10 @@ def load_checkpoint(checkpoint_path: str, device: torch.device) -> dict[str, Any
 
     Args:
         checkpoint_path (str): Path to the checkpoint file.
+        device (torch.device): The device to map the checkpoint to.
+
+    Returns:
+        dict[str, Any]: A dictionary containing the checkpoint data.
     """
     checkpoint = torch.load(checkpoint_path, map_location=device)
     return checkpoint
@@ -189,10 +235,10 @@ def scale(
     """Rescale a tensor from a source range to a target range.
 
     Args:
-        tensor: The input tensor to be rescaled.
-        source_range: A tuple (min, max) representing the source range of the tensor values.
-        target_range: A tuple (min, max) representing the target range for the rescaled values.
-        clamp: If True, clamp the output values to the target range. Default is False.
+        tensor (torch.Tensor): The input tensor to be rescaled.
+        source_range (tuple): A tuple (min, max) representing the source range of the tensor values.
+        target_range (tuple): A tuple (min, max) representing the target range for the rescaled values.
+        clamp (bool): If True, clamp the output values to the target range. Default is False.
 
     Returns:
         torch.Tensor: The rescaled tensor.
@@ -204,7 +250,3 @@ def scale(
         tensor = tensor.clamp(target_range[0], target_range[1])
 
     return tensor
-
-
-if __name__ == "__main__":
-    print("Available checkpoints:", get_models())

@@ -189,8 +189,8 @@ pyrightconfig.json
 .history
 .ionide
 
-### Data ###
+### Dataset ###
 data/
 
 ### Checkpoints ###
-checkpoints/
+*.pt

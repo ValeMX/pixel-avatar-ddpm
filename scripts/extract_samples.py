@@ -9,8 +9,15 @@ def extract_samples(
     output_dir="data/samples_by_attribute",
     target_features=None,
     no_glasses_val=11,
-):
-    """Find and extract sample images for each value of the specified features from the dataset."""
+) -> None:
+    """Find and extract sample images for each value of the specified features from the dataset.
+
+    Args:
+        data_dir (str): Path to the dataset directory containing CSV files and images.
+        output_dir (str): Path to the output directory where extracted samples will be saved.
+        target_features (list): List of feature names for which to extract sample images.
+        no_glasses_val (int): The value representing "no glasses" in the dataset. Default is 11.
+    """
 
     if target_features is None:
         raise ValueError("target_features must be provided as a list of feature names.")
@@ -105,5 +112,7 @@ if __name__ == "__main__":
     ]
 
     extract_samples(
-        data_dir=dataset_path, output_dir=output_path, target_features=artwork + colors + proportions
+        data_dir=dataset_path,
+        output_dir=output_path,
+        target_features=artwork + colors + proportions,
     )

@@ -5,23 +5,19 @@ import torch.nn as nn
 
 
 class TimeEncoder(nn.Module):
-    """Time encoder that encodes time steps into a higher-dimensional space.
+    """Time Encoder class that encodes time steps into a higher-dimensional space.
 
-    The time encoder uses a multi-layer perceptron (MLP) to transform
-    the input time steps into a higher-dimensional representation.
-    The MLP consists of two linear layers with SiLU activation functions in between.
-
-    Args:
-        input_dimension: Dimension of the input time steps.
-        output_dimension: Dimension of the output encoded time steps.
+    The Time Encoder uses sinusoidal positional encoding to represent time steps
+    and then passes the encoded representation through a multi-layer perceptron (MLP)
+    to produce the final output.
     """
 
     def __init__(self, input_dimension: int, output_dimension: int):
-        """Initialize the time encoder.
+        """Initialize the Time Encoder module.
 
         Args:
-            input_dimension: Dimension of the input time steps.
-            output_dimension: Dimension of the output encoded time steps.
+            input_dimension (int): Dimension of the input time steps.
+            output_dimension (int): Dimension of the output encoded time steps.
         """
         self.input_dimension = input_dimension
         self.output_dimension = output_dimension
@@ -35,21 +31,19 @@ class TimeEncoder(nn.Module):
         )
 
     def forward(self, timesteps: torch.Tensor) -> torch.Tensor:
-        """Forward pass of the time encoder.
+        """Forward pass of the Time Encoder.
 
         Args:
-            timesteps: A tensor of shape (batch_size, input_dimension)
-                representing the input time steps.
+            timesteps (torch.Tensor): A tensor of shape (batch_size,) representing the input time steps.
 
         Returns:
-            A tensor of shape (batch_size, output_dimension) representing
-            the encoded time steps.
+            torch.Tensor: A tensor of shape (batch_size, output_dimension) representing the encoded time steps.
 
         Raises:
             ValueError: If the input timesteps tensor is not 1D.
         """
         if len(timesteps.shape) != 1:
-            raise ValueError("Expected timestep to be a 1D tensor.")
+            raise ValueError("Expected timesteps to be a 1D tensor.")
 
         encoded_timesteps = self.get_positional_encoding(timesteps)
 
@@ -59,12 +53,14 @@ class TimeEncoder(nn.Module):
         """Generate sinusoidal encoding for the given time steps.
 
         Args:
-            timesteps: A tensor of shape (batch_size,) representing the time steps.
+            timesteps (torch.Tensor): A tensor of shape (batch_size,) representing the time steps.
 
         Returns:
-            A tensor of shape (batch_size, input_dimension) representing the sinusoidal encoding.
+            torch.Tensor: A tensor of shape (batch_size, input_dimension) representing the sinusoidal encoding.
         """
         timesteps = timesteps.to(torch.float32)
+
+        # Compute the frequencies for the sinusoidal encoding
         half = self.input_dimension // 2
         freqs = torch.exp(
             -math.log(10000)
@@ -73,9 +69,12 @@ class TimeEncoder(nn.Module):
             )
             / half
         )
+
+        # Generate the sinusoidal encoding using the sine and cosine functions
         args = timesteps[:, None] * freqs[None]
         encoding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
 
+        # If the input dimension is odd, append a zero vector to the encoding
         if self.input_dimension % 2 == 1:
             encoding = torch.cat([encoding, torch.zeros_like(encoding[:, :1])], dim=-1)
 

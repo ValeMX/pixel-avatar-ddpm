@@ -11,7 +11,11 @@ from pathlib import Path
 
 
 def clean_directory(directory_path: str) -> None:
-    """Clean the specified directory by removing all files and subdirectories."""
+    """Clean the specified directory by removing all files and subdirectories.
+
+    Args:
+        directory_path (str): Path to the directory to be cleaned.
+    """
     directory = Path(directory_path)
     if directory.exists():
         for file in directory.iterdir():
@@ -34,7 +38,7 @@ def build_ordinary_split(
     validation_ratio: float = 0.1,
     image_extension: str = "png",
     caption_extension: str = "txt",
-):
+) -> None:
     """Build an ordinary split of the dataset.
 
     Args:
@@ -128,7 +132,7 @@ def load_metadata(
         string_columns (set[str], optional): Set of column names that should be treated as strings.
 
     Returns:
-        A list of dictionaries representing the metadata rows.
+        list[dict]: A list of dictionaries representing the metadata rows.
 
     Raises:
         ValueError: If the metadata file is empty or invalid.
@@ -153,7 +157,7 @@ def resolve_combinations(combos: list[dict], mappings: dict) -> list[tuple]:
         mappings (dict): Dictionary mapping attributes to their corresponding value IDs.
 
     Returns:
-        A list of tuples representing the resolved held-out combinations.
+        list[tuple]: A list of tuples representing the resolved held-out combinations.
 
     Raises:
         ValueError: If an attribute or value in the combinations is unknown or invalid.
@@ -190,7 +194,7 @@ def resolve_combinations(combos: list[dict], mappings: dict) -> list[tuple]:
     return resolved
 
 
-def is_held_out(row: dict, resolved: list[tuple]) -> bool:
+def is_held_out(row: dict, resolved: list[tuple]) -> int:
     """Check if a given row contains any of the held-out combinations.
 
     Args:
@@ -198,11 +202,15 @@ def is_held_out(row: dict, resolved: list[tuple]) -> bool:
         resolved (list[tuple]): A list of tuples representing the resolved held-out combinations.
 
     Returns:
-        True if the row contains any held-out combination, False otherwise.
+        int: The index of the held-out combination if the row contains any, otherwise returns -1.
     """
     # Check if the row contains any of the held-out combinations
     # by comparing the attribute-value pairs in the row with those in the resolved combinations.
-    return any(row[a1] == v1 and row[a2] == v2 for (a1, v1), (a2, v2) in resolved)
+    for idx, ((a1, v1), (a2, v2)) in enumerate(resolved):
+        if row[a1] == v1 and row[a2] == v2:
+            return idx
+
+    return -1
 
 
 def get_text(mappings: dict, attribute: str, value_id: int) -> str:
@@ -214,7 +222,7 @@ def get_text(mappings: dict, attribute: str, value_id: int) -> str:
         value_id (int): The value ID for which to retrieve the text representation.
 
     Returns:
-        The text representation of the value ID for the specified attribute.
+        str: The text representation of the value ID for the specified attribute.
     """
     return mappings[attribute].get(value_id, str(value_id))
 
@@ -224,9 +232,8 @@ def create_compositional_split(
     resolved: list[tuple],
     mappings: dict,
     seed: int = 42,
-    train_ratio: float = 0.8,
-    validation_ratio: float = 0.1,
-) -> tuple[dict[str, list[str]], dict]:
+    train_ratio: float = 0.9,
+) -> tuple[dict[str, list[str] | dict[str, list[str]]], dict]:
     """Build a compositional split of the data.
 
     Args:
@@ -234,12 +241,11 @@ def create_compositional_split(
         resolved (list[tuple]): List of tuples representing the resolved held-out combinations.
         mappings (dict): Dictionary mapping attributes to their corresponding value IDs.
         seed (int): Random seed for reproducibility. Default is 42.
-        train_ratio (float): Ratio of training data. Default is 0.8 (80% for training).
-        validation_ratio (float): Ratio of validation data. Default is 0.1 (10% for validation).
+        train_ratio (float): Ratio of training data. Default is 0.9 (90% for training).
         min_single_count (int): Minimum number of times a single value must appear in the training set. Default is 30.
 
     Returns:
-        A tuple containing the splits and the report.
+        tuple[dict[str, list[str] | dict[str, list[str]]], dict]: A tuple containing the splits and the report.
 
     Raises:
         ValueError: If the input data is invalid or if the split cannot be constructed.
@@ -248,30 +254,40 @@ def create_compositional_split(
     if not resolved:
         raise ValueError("No held-out combinations specified.")
 
-    ood_rows = [r for r in rows if is_held_out(r, resolved)]
-    pool_rows = [r for r in rows if not is_held_out(r, resolved)]
+    pool_rows = []
+    ood_rows = {idx: [] for idx in range(len(resolved))}
+
+    for row in rows:
+        if is_held_out(row, resolved) != -1:
+            idx = is_held_out(row, resolved)
+            ood_rows[idx].append(row["image"])
+        else:
+            pool_rows.append(row)
+
+    for idx, images in ood_rows.items():
+        ood_rows[idx] = sorted(images)
 
     # Generate a list of stems (image names without extensions) and shuffle them using the provided seed for reproducibility.
     stems = sorted(r["image"] for r in pool_rows)
     random.Random(seed).shuffle(stems)
 
     # Split the stems into training, validation, and test sets based on the specified ratios.
+    # Test set is composed of the held-out combinations (OOD), while the training and validation sets are derived from the remaining data.
     train_size = int(len(stems) * train_ratio)
-    val_size = int(len(stems) * validation_ratio)
 
     splits = {
         "train": stems[:train_size],
-        "validation": stems[train_size : train_size + val_size],
-        "test": stems[train_size + val_size :],
-        "ood": sorted(r["image"] for r in ood_rows),
+        "validation": stems[train_size:],
+        "test": ood_rows,
     }
 
     by_name = {r["image"]: r for r in rows}
     train_rows = [by_name[s] for s in splits["train"]]
 
     combo_reports = []
-    for (a1, v1), (a2, v2) in resolved:
-        n_ood = sum(1 for r in ood_rows if r[a1] == v1 and r[a2] == v2)
+    for idx, items in enumerate(resolved):
+        (a1, v1), (a2, v2) = items
+        n_ood = len(ood_rows[idx])
         n_t1 = sum(1 for r in train_rows if r[a1] == v1)
         n_t2 = sum(1 for r in train_rows if r[a2] == v2)
 
@@ -296,8 +312,15 @@ def create_compositional_split(
     report = {
         "seed": seed,
         "train_ratio": train_ratio,
-        "validation_ratio": validation_ratio,
-        "counts": {name: len(files) for name, files in splits.items()},
+        "validation_ratio": 1 - train_ratio,
+        "counts": {
+            name: (
+                len(files)
+                if name != "test"
+                else {held_out: len(images) for held_out, images in files.items()}
+            )
+            for name, files in splits.items()
+        },
         "held_out_combinations": combo_reports,
     }
 
@@ -323,7 +346,7 @@ def find_candidate_combinations(
         min_single (int): Minimum frequency for a single attribute-value combination to be considered. Default is 300.
 
     Returns:
-        A list of dictionaries representing candidate combinations that meet the specified criteria.
+        list[dict]: A list of dictionaries representing candidate combinations that meet the specified criteria.
     """
     # Count the occurrences of each single attribute-value pair in the dataset.
     singles = {a: Counter(r[a] for r in rows) for a in attributes}
@@ -357,7 +380,7 @@ def find_candidate_combinations(
 def write_split(
     data_path: str,
     split_path: str,
-    splits: dict[str, list[str]],
+    splits: dict[str, list[str] | dict[str, list[str]]],
     report: dict,
     image_extension: str = "png",
     caption_extension: str = "txt",
@@ -367,7 +390,7 @@ def write_split(
     Args:
         data_path (str): Path to the dataset directory containing images and captions.
         split_path (str): Path to the directory where the split data will be saved.
-        splits (dict[str, list[str]]): Dictionary containing the splits (train, validation, test, ood).
+        splits (dict[str, list[str] | dict[str, list[str]]]): Dictionary containing the splits (train, validation, test).
         report (dict): Dictionary containing information about the split (e.g., counts, held-out combinations).
         image_extension (str, optional): Extension of image files. Default is "png".
         caption_extension (str, optional): Extension of caption files. Default is "txt".
@@ -380,9 +403,25 @@ def write_split(
         out_dir = split_dir / name
         out_dir.mkdir(parents=True, exist_ok=True)
         for stem in stems:
-            for ext in (image_extension, caption_extension):
-                shutil.copy2(
-                    Path(data_path) / f"{stem}.{ext}", out_dir / f"{stem}.{ext}"
+            if isinstance(stems, dict):
+                for _, images in stems.items():
+                    for image in images:
+                        shutil.copy(
+                            Path(data_path) / f"{image}.{image_extension}",
+                            out_dir / f"{image}.{image_extension}",
+                        )
+                        shutil.copy(
+                            Path(data_path) / f"{image}.{caption_extension}",
+                            out_dir / f"{image}.{caption_extension}",
+                        )
+            else:
+                shutil.copy(
+                    Path(data_path) / f"{stem}.{image_extension}",
+                    out_dir / f"{stem}.{image_extension}",
+                )
+                shutil.copy(
+                    Path(data_path) / f"{stem}.{caption_extension}",
+                    out_dir / f"{stem}.{caption_extension}",
                 )
 
     with open(split_dir / "split.json", "w") as file:
@@ -396,8 +435,7 @@ def build_compositional_split(
     combos: list[dict],
     seed: int = 42,
     metadata_name: str = "metadata.csv",
-    train_ratio: float = 0.8,
-    validation_ratio: float = 0.1,
+    train_ratio: float = 0.9,
     image_extension: str = "png",
     caption_extension: str = "txt",
 ) -> dict:
@@ -410,13 +448,12 @@ def build_compositional_split(
         combos (list[dict]): List of dictionaries representing the held-out combinations.
         seed (int, optional): Random seed for reproducibility. Default is 42.
         metadata_name (str, optional): Name of the metadata CSV file. Default is "metadata.csv".
-        train_ratio (float, optional): Ratio of training data. Default is 0.8 (80% for training).
-        validation_ratio (float, optional): Ratio of validation data. Default is 0.1 (10% for validation).
+        train_ratio (float, optional): Ratio of training data. Default is 0.9 (90% for training).
         image_extension (str, optional): Extension of image files. Default is "png".
         caption_extension (str, optional): Extension of caption files. Default is "txt".
 
     Returns:
-        A dictionary containing information about the split (e.g., counts, held-out combinations).
+        dict: A dictionary containing information about the split (e.g., counts, held-out combinations).
     """
     # 1. Load the metadata from the specified CSV file in the dataset directory.
     rows = load_metadata(data_path + "/" + metadata_name)
@@ -431,7 +468,6 @@ def build_compositional_split(
         mappings,
         seed=seed,
         train_ratio=train_ratio,
-        validation_ratio=validation_ratio,
     )
 
     # 4. Write the split data (images and captions) to the specified split directory and save the split definition as a JSON file.
@@ -455,3 +491,53 @@ def build_compositional_split(
         )
 
     return report
+
+
+def get_compositional_test_samples(
+    split_path: str,
+    metadata_name: str = "split.json",
+    seed: int = 42,
+) -> list[dict[str, str]]:
+    """Extract a random sample for each held-out combination in the compositional test split.
+
+    Args:
+        split_path (str): Path to the directory where the split data is saved.
+        metadata_name (str, optional): Name of the metadata JSON file. Default is "split.json".
+        seed (int): The seed value for the random number generator. Default is 42.
+
+    Returns:
+        list[dict[str, str]]: A list of dictionaries representing the compositional test samples.
+    """
+    random.seed(seed)
+
+    with open(Path(split_path) / metadata_name, "r") as file:
+        split_data = json.load(file)
+
+    combinations = split_data.get("held_out_combinations", [])
+    files = split_data.get("files", {}).get("test", {})
+
+    test_path = Path(split_path) / "test"
+    if not test_path.exists():
+        raise FileNotFoundError(f"Test directory not found in {split_path}")
+
+    test_samples = []
+    for combination, images in zip(combinations, files.values()):
+        if not images:
+            print(
+                f"Warning: No images found for held-out combination {combination}. Skipping."
+            )
+            continue
+
+        selected_image = random.choice(images)
+        test_samples.append(
+            {
+                "attribute_1": combination["attribute_1"],
+                "value_1": combination["value_1"],
+                "attribute_2": combination["attribute_2"],
+                "value_2": combination["value_2"],
+                "image": str(test_path / f"{selected_image}.png"),
+                "prompt": str(test_path / f"{selected_image}.txt"),
+            }
+        )
+
+    return test_samples
